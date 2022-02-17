@@ -156,38 +156,3 @@ function Mira.TDC(p::CuArray{TYPE,2}, seqlabel::Vector; blank::Int=1, front::Int
 
     return r, -Array(LOGSUM)[1]
 end
-
-
-function Mira.CRNN_TDC_With_Softmax(x::Variable{CuArray{T}},
-                                    seqlabels::Vector;
-                                    blank::Int=1,
-                                    front::Int=2,
-                                    reduction::String="seqlen",
-                                    weight::Float64=1.0) where T
-    featdims, timesteps, batchsize = size(x)
-    loglikely = zeros(T, batchsize)
-    p = softmax(ᵛ(x); dims=1)
-    r = zero(ᵛ(x))
-
-    Threads.@threads for b = 1:batchsize
-        r[:,:,b], loglikely[b] = TDC(p[:,:,b], seqlabels[b], blank=blank, front=front)
-    end
-
-    Δ = p - r
-    reduce3d(Δ, loglikely, seqlabels, reduction)
-    y = Variable{T}([sum(loglikely)], x.backprop)
-
-    if y.backprop
-        y.backward = function CRNN_TDC_With_Softmax_Backward()
-            if need2computeδ!(x)
-                if weight==1.0
-                    δ(x) .+= Δ
-                else
-                    δ(x) .+= Δ .* weight
-                end
-            end
-        end
-        addchild(y, x)
-    end
-    return y
-end
