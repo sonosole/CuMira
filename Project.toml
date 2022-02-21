@@ -7,7 +7,7 @@ license = "MIT"
 [deps]
 Test     = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Random   = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-Mira     = "9e3a83e1-479c-4d1c-ae0a-a5bbc61f1663"
+Mira     = "dc5327d4-52c5-48b3-8340-b1844419aa4d"
 CUDA     = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 
