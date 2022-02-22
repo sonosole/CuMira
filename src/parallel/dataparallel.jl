@@ -25,7 +25,7 @@ mutable struct DataParallel{T} <: Parallel
     models    :: Vector{T}                # models on `devices`
     params    :: Vector{Vector{Variable}} # workers-device's params
     type      :: Type
-    function DataParallel{T}(model     :: T,
+    function DataParallel{T}(model     :: T;
                              master    :: Int=0,
                              devices   :: Vector{Int}=[0],
                              criterion :: Function,
