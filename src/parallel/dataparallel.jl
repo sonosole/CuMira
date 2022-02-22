@@ -80,8 +80,8 @@ function fwdbwd(dp::DataParallel, x, y)
     T = dp.type
     n = length(dp.devices)
     l = Vector(undef,   n)
-    xdim, xkeptsame = xspliter
-    ydim, ykeptsame = yspliter
+    xdim, xkeptsame = dp.xspliter
+    ydim, ykeptsame = dp.yspliter
     I₁, I₂, N = keptdims(x; dim=xdim)
     J₁, J₂, M = keptdims(y; dim=ydim);
     @assert N == M "input and label do NOT have the same samples"
