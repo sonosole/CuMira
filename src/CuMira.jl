@@ -10,6 +10,7 @@ include("./basic/basic.jl")
 include("./block/block.jl")
 include("./kit/kit.jl")
 include("./loss/loss.jl")
+include("./parallel/include.jl")
 
 
 end  # module CuMira
