@@ -73,7 +73,7 @@ end
 
 
 masterof(dp::DataParallel)  = dp.models[dp.masteridx]
-xparamsof(dp::DataParallel) = xparamsof(masterof(dp))
+Mira.xparamsof(dp::DataParallel) = xparamsof(masterof(dp))
 
 
 function fwdbwd(dp::DataParallel, x, y)
