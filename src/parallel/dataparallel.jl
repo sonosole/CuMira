@@ -1,6 +1,7 @@
 export DataParallel
 export masterof
 export fwdbwd
+export Spliter
 
 const Spliter = NamedTuple{(:dim,:keptsame),Tuple{Int, Bool}}
 
@@ -31,10 +32,10 @@ mutable struct DataParallel{T} <: Parallel
                              criterion :: Function,
                              xspliter  :: Spliter=(dim=1, keptsame=false),
                              yspliter  :: Spliter=(dim=1, keptsame=false),
-                             type      :: Type=Array{Float32}) where T
+                             type      :: Type=CuArray{Float32}) where T
 
         @assert master in devices "master=$master not in devices=$devices"
-        masteridx = -1
+        masteridx = 0
         ntasks = length(devices)
         models = Vector{T}(undef, ntasks)
         params = Vector{Vector{Variable}}(undef, ntasks)
@@ -56,6 +57,24 @@ mutable struct DataParallel{T} <: Parallel
                params,
                type)
     end
+end
+
+
+function DataParallel(model     :: T;
+                      master    :: Int=0,
+                      devices   :: Vector{Int}=[0],
+                      criterion :: Function,
+                      xspliter  :: Spliter=(dim=1, keptsame=false),
+                      yspliter  :: Spliter=(dim=1, keptsame=false),
+                      type      :: Type=CuArray{Float32}) where T
+
+    return DataParallel{T}(model,
+                           master    = master;
+                           devices   = devices,
+                           criterion = criterion,
+                           xspliter  = xspliter,
+                           yspliter  = Yspliter,
+                           type      = type)
 end
 
 
@@ -102,17 +121,12 @@ function fwdbwd(dp::DataParallel, x, y)
     end
 
     # reduce gradients and zero gradients of non-master's
-    for dev in dp.devices
-        device!(dev)
-        synchronize()
-    end
-    
     k = dp.masteridx
     for i = 1:length(dp.params)
         if i ≠ k
             device!(k)
             for (master, worker) in zip(dp.params[k], dp.params[i])
-                tmpvar = Zeros(typeof(master.delta), master.shape)
+                tmpvar = Zeros(T, master.shape)
                 master.delta .+= copyto!(tmpvar, worker.delta)
             end
             device!(dp.devices[i])
