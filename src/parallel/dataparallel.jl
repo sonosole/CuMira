@@ -34,6 +34,7 @@ mutable struct DataParallel{T} <: Parallel
                              type      :: Type=Array{Float32}) where T
 
         @assert master in devices "master=$master not in devices=$devices"
+        masteridx = -1
         ntasks = length(devices)
         models = Vector{T}(undef, ntasks)
         params = Vector{Vector{Variable}}(undef, ntasks)
@@ -61,8 +62,8 @@ end
 function Base.show(io, dp::DataParallel{T}) where T
     println("DataParallel{$T}")
     println(io, "———————————————————————")
-    println(io, "master device  = $masteridx")
-    println(io, "worker devices = $devices")
+    println(io, "master device  = $(dp.masteridx)")
+    println(io, "worker devices = $(dp.devices)")
     println(io, "     criterion = $(dp.criterion)")
     println(io, "      xspliter = $(dp.xspliter)")
     println(io, "      yspliter = $(dp.yspliter)")
