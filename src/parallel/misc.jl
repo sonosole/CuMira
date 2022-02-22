@@ -14,7 +14,7 @@ would process, `k` means get the k-th device's samples.
     17:17
 
 """
-@inline function getidx(N::Int, batchsize::Int, k::Int)
+function getidx(N::Int, batchsize::Int, k::Int)
     start = 1 + (k-1)*batchsize
     final = min(k*batchsize, N)
     return start:final
@@ -24,7 +24,7 @@ end
 """
     keptdims(x; dim=1) -> CartesianIndices1, CartesianIndices2, lenofthisdim
 """
-@inline function keptdims(x; dim=1)
+function keptdims(x; dim=1)
     sizex = size(x)
     dims  = ndims(x)
     I1 = CartesianIndices(sizex[1:dim-1])
