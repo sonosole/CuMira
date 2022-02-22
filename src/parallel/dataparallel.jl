@@ -102,12 +102,17 @@ function fwdbwd(dp::DataParallel, x, y)
     end
 
     # reduce gradients and zero gradients of non-master's
+    for dev in dp.devices
+        device!(dev)
+        synchronize()
+    end
+    
     k = dp.masteridx
     for i = 1:length(dp.params)
         if i ≠ k
             device!(k)
             for (master, worker) in zip(dp.params[k], dp.params[i])
-                tmpvar = Zero(typeof(master.delta), master.shape)
+                tmpvar = Zeros(typeof(master.delta), master.shape)
                 master.delta .+= copyto!(tmpvar, worker.delta)
             end
             device!(dp.devices[i])
