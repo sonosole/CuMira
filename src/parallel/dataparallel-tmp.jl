@@ -108,15 +108,15 @@ Mira.xparamsof(dp::DataParallel) = xparamsof(masterof(dp))
 
 function fwdbwd(dp::DataParallel, x, y)
     T = dp.type
-    M = dp.masteridx
     G = dp.params
+    M = dp.masteridx
     C = length(dp.cpuvars)
     D = length(dp.devices)
     l = Vector(undef,   D)
     xdim, xkeptsame = dp.xspliter
     ydim, ykeptsame = dp.yspliter
     I₁, I₂, N = keptdims(x; dim=xdim)
-    J₁, J₂, L = keptdims(y; dim=ydim);
+    J₁, J₂, L = keptdims(y; dim=ydim)
     @assert N == L "#input=$N and #label=$L do NOT have the same number of samples"
     batchsize = ceil(Int, N/D)
 
@@ -156,7 +156,7 @@ function fwdbwd(dp::DataParallel, x, y)
     end
     # move gradients from CPU to master-GPU
     # and reset CPU's gradients to zero
-    device!(M)
+    device!(dp.devices[M])
     Threads.@threads for j = 1:C
         δ(G[M][j]) .+= T(δ(dp.cpuvars[j]))
         δ(dp.cpuvars[j]) .= 0.0f0
@@ -174,7 +174,7 @@ function sync(dp::DataParallel)
     D = length(dp.devices)
 
     # move weights from master-GPU to CPU
-    device!(M)
+    device!(dp.devices[M])
     Threads.@threads for j = 1:C
         ᵛ(dp.cpuvars[j]) .= Array(ᵛ(G[M][j]))
     end
