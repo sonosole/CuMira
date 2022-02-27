@@ -97,18 +97,21 @@ Mira.xparamsof(dp::DataParallel) = xparamsof(masterof(dp))
 
 function fwdbwd(dp::DataParallel, x, y)
     T = dp.type
-    n = length(dp.devices)
-    l = Vector(undef,   n)
+    M = dp.masteridx
+    P = dp.params
+    C = length(P[M])        # number of learnable params
+    D = length(dp.devices)  # number of GPUs
+    l = Vector(undef,   D)  # to store losses
     xdim, xkeptsame = dp.xspliter
     ydim, ykeptsame = dp.yspliter
     I₁, I₂, N = keptdims(x; dim=xdim)
-    J₁, J₂, M = keptdims(y; dim=ydim);
-    @assert N == M "input and label do NOT have the same samples"
-    batchsize = div(N, n)
+    J₁, J₂, L = keptdims(y; dim=ydim);
+    @assert N == L "#input=$N and #label=$L do NOT have the same number of samples"
+    batchsize = ceil(Int, N/D)
 
-    # forward and loss and backward
+    # forward, loss and backward
     @sync begin
-        Threads.@threads for i = 1:n
+        Threads.@threads for i = 1:D
             device!(dp.devices[i])
             k = getidx(N, batchsize, i)
             input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
@@ -121,17 +124,38 @@ function fwdbwd(dp::DataParallel, x, y)
     end
 
     # reduce gradients and zero gradients of non-master's
-    k = dp.masteridx
-    for i = 1:length(dp.params)
-        if i ≠ k
-            device!(k)
-            for (master, worker) in zip(dp.params[k], dp.params[i])
-                tmpvar = Zeros(T, master.shape)
-                master.delta .+= copyto!(tmpvar, worker.delta)
+    for i = 1:D
+        if i ≠ M
+            device!(M)
+            Threads.@threads for j = 1:C
+                tmp = Zeros(T, P[M][j].shape)
+                δ(P[M][j]) .+= copyto!(tmp, δ(P[i][j]))
             end
             device!(dp.devices[i])
-            zerograds!(dp.params[i])
+            zerograds!(P[i])
         end
     end
     return sum(l)
+end
+
+
+function sync(dp::DataParallel)
+    T = dp.type
+    M = dp.masteridx
+    P = dp.params
+    C = length(P[M])        # number of learnable params
+    D = length(dp.devices)  # number of GPUs
+
+    # move weights from master-GPU to non-master-GPUs
+    @sync begin
+        for i = 1:D
+            if i ≠ M
+                device!(dp.devices[i])
+                Threads.@threads for j = 1:C
+                    tmp = Zeros(T, P[i][j].shape)
+                    ᵛ(P[i][j]) .= copyto!(tmp, ᵛ(P[M][j]))
+                end
+            end
+        end
+    end
 end
