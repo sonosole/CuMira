@@ -101,24 +101,27 @@ function Base.show(io::IO, dp::DataParallel{T}) where T
 end
 
 
-masterof(dp::DataParallel)  = dp.models[dp.masteridx]
+masterof(dp::DataParallel) = dp.models[dp.masteridx]
 Mira.xparamsof(dp::DataParallel) = xparamsof(masterof(dp))
 
 
 function fwdbwd(dp::DataParallel, x, y)
     T = dp.type
-    n = length(dp.devices)
-    l = Vector(undef,   n)
+    M = dp.masteridx
+    G = dp.params
+    C = length(dp.cpuvars)
+    D = length(dp.devices)
+    l = Vector(undef,   D)
     xdim, xkeptsame = dp.xspliter
     ydim, ykeptsame = dp.yspliter
     I₁, I₂, N = keptdims(x; dim=xdim)
-    J₁, J₂, M = keptdims(y; dim=ydim);
-    @assert N == M "input and label do NOT have the same number of samples"
-    batchsize = div(N, n)
+    J₁, J₂, L = keptdims(y; dim=ydim);
+    @assert N == L "#input=$N and #label=$L do NOT have the same number of samples"
+    batchsize = ceil(Int, N/D)
 
     # forward and loss and backward
     @sync begin
-        Threads.@threads for i = 1:n
+        Threads.@threads for i = 1:D
             device!(dp.devices[i])
             k = getidx(N, batchsize, i)
             input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
@@ -130,16 +133,13 @@ function fwdbwd(dp::DataParallel, x, y)
         end
     end
 
-    K = dp.masteridx
-    C = length(dp.cpuvars)
-    D = length(dp.devices)
     # reduce gradients from non-master-GPUs to CPU
     @sync begin
         for i = 1:D
-            if i ≠ K
+            if i ≠ M
                 device!(dp.devices[i])
                 Threads.@threads for j = 1:C
-                    δ(dp.cpuvars[j]) .+= Array(δ(dp.params[i][j]))
+                    δ(dp.cpuvars[j]) .+= Array(δ(G[i][j]))
                 end
             end
         end
@@ -147,19 +147,46 @@ function fwdbwd(dp::DataParallel, x, y)
     # zero gradients of non-master-GPUs
     @sync begin
         Threads.@threads for i = 1:D
-            if i ≠ K
+            if i ≠ M
                 device!(dp.devices[i])
-                zerograds!(dp.params[i])
+                zerograds!(G[i])
             end
         end
     end
     # move gradients from CPU to master-GPU
     # and reset CPU's gradients to zero
-    device!(K)
+    device!(M)
     Threads.@threads for j = 1:C
-        δ(dp.params[K][j]) .+= T(δ(dp.cpuvars[j]))
+        δ(G[M][j]) .+= T(δ(dp.cpuvars[j]))
         δ(dp.cpuvars[j]) .= 0.0f0
     end
 
     return sum(l)
+end
+
+
+function sync(dp::DataParallel)
+    T = dp.type
+    M = dp.masteridx
+    G = dp.params
+    C = length(dp.cpuvars)
+    D = length(dp.devices)
+
+    # move weights from master-GPU to CPU
+    device!(M)
+    Threads.@threads for j = 1:C
+        ᵛ(dp.cpuvars[j]) .= Array(ᵛ(G[M][j]))
+    end
+
+    # copy weights from CPU to non-master-GPUs
+    @sync begin
+        for i = 1:D
+            if i ≠ M
+                device!(dp.devices[i])
+                Threads.@threads for j = 1:C
+                    ᵛ(G[i][j]) .= T(ᵛ(dp.cpuvars[j]))
+                end
+            end
+        end
+    end
 end
