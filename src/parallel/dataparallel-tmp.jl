@@ -5,6 +5,7 @@ export DataParallel
 export masterof
 export fwdbwd
 export Spliter
+export sync
 
 const Spliter = NamedTuple{(:dim,:keptsame),Tuple{Int, Bool}}
 
