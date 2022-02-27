@@ -167,8 +167,8 @@ end
 
 function sync(dp::DataParallel)
     T = dp.type
-    M = dp.masteridx
     G = dp.params
+    M = dp.masteridx
     C = length(dp.cpuvars)
     D = length(dp.devices)
 
