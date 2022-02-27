@@ -161,7 +161,6 @@ function fwdbwd(dp::DataParallel, x, y)
         δ(G[M][j]) .+= T(δ(dp.cpuvars[j]))
         δ(dp.cpuvars[j]) .= 0.0f0
     end
-
     return sum(l)
 end
 
@@ -190,4 +189,6 @@ function sync(dp::DataParallel)
             end
         end
     end
+    device!(dp.devices[M])
+    return nothing
 end

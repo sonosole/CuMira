@@ -79,7 +79,7 @@ function DataParallel(model     :: T;
 end
 
 
-function Base.show(io, dp::DataParallel{T}) where T
+function Base.show(io::IO, dp::DataParallel{T}) where T
     println("DataParallel{$T}")
     println(io, "———————————————————————")
     println(io, "master device  = $(dp.masteridx)")
@@ -125,17 +125,20 @@ function fwdbwd(dp::DataParallel, x, y)
     end
 
     # reduce gradients and zero gradients of non-master's
-    for i = 1:D
-        if i ≠ M
-            device!(dp.devices[M])
-            Threads.@threads for j = 1:C
-                tmp = Zeros(T, G[M][j].shape)
-                δ(G[M][j]) .+= copyto!(tmp, δ(G[i][j]))
+    @sync begin
+        for i = 1:D
+            if i ≠ M
+                device!(dp.devices[M])
+                Threads.@threads for j = 1:C
+                    tmp = Zeros(T, G[M][j].shape)
+                    δ(G[M][j]) .+= copyto!(tmp, δ(G[i][j]))
+                end
+                device!(dp.devices[i])
+                zerograds!(G[i])
             end
-            device!(dp.devices[i])
-            zerograds!(G[i])
         end
     end
+    device!(dp.devices[M])
     return sum(l)
 end
 
@@ -159,4 +162,6 @@ function sync(dp::DataParallel)
             end
         end
     end
+    device!(dp.devices[M])
+    return nothing
 end
