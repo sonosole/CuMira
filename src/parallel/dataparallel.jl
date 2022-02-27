@@ -15,7 +15,7 @@ mutable struct DataParallel{T} <: Parallel
                     criterion :: Function,         # loss function
                     xspliter  :: Spliter,          # split input flags for devices
                     yspliter  :: Spliter,          # split label flags for devices
-                    type      :: Type=Array{Float32}) where T
+                    type      :: Type=CuArray{Float32}) where T
 """
 mutable struct DataParallel{T} <: Parallel
     masteridx :: Int                      # master device's index
@@ -73,7 +73,7 @@ function DataParallel(model     :: T;
                            devices   = devices,
                            criterion = criterion,
                            xspliter  = xspliter,
-                           yspliter  = Yspliter,
+                           yspliter  = yspliter,
                            type      = type)
 end
 
