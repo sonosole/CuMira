@@ -98,8 +98,8 @@ Mira.xparamsof(dp::DataParallel) = xparamsof(masterof(dp))
 function fwdbwd(dp::DataParallel, x, y)
     T = dp.type
     M = dp.masteridx
-    P = dp.params
-    C = length(P[M])        # number of learnable params
+    G = dp.params
+    C = length(G[M])        # number of learnable params
     D = length(dp.devices)  # number of GPUs
     l = Vector(undef,   D)  # to store losses
     xdim, xkeptsame = dp.xspliter
@@ -128,11 +128,11 @@ function fwdbwd(dp::DataParallel, x, y)
         if i ≠ M
             device!(M)
             Threads.@threads for j = 1:C
-                tmp = Zeros(T, P[M][j].shape)
-                δ(P[M][j]) .+= copyto!(tmp, δ(P[i][j]))
+                tmp = Zeros(T, G[M][j].shape)
+                δ(G[M][j]) .+= copyto!(tmp, δ(G[i][j]))
             end
             device!(dp.devices[i])
-            zerograds!(P[i])
+            zerograds!(G[i])
         end
     end
     return sum(l)
@@ -142,8 +142,8 @@ end
 function sync(dp::DataParallel)
     T = dp.type
     M = dp.masteridx
-    P = dp.params
-    C = length(P[M])        # number of learnable params
+    G = dp.params
+    C = length(G[M])        # number of learnable params
     D = length(dp.devices)  # number of GPUs
 
     # move weights from master-GPU to non-master-GPUs
@@ -152,8 +152,8 @@ function sync(dp::DataParallel)
             if i ≠ M
                 device!(dp.devices[i])
                 Threads.@threads for j = 1:C
-                    tmp = Zeros(T, P[i][j].shape)
-                    ᵛ(P[i][j]) .= copyto!(tmp, ᵛ(P[M][j]))
+                    tmp = Zeros(T, G[i][j].shape)
+                    ᵛ(G[i][j]) .= copyto!(tmp, ᵛ(G[M][j]))
                 end
             end
         end
