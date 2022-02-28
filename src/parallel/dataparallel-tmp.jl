@@ -106,6 +106,7 @@ end
 
 
 masterof(dp::DataParallel) = dp.models[dp.masteridx]
+
 function Mira.xparamsof(dp::DataParallel)
     device!(dp.devices[dp.masteridx])
     return xparamsof(masterof(dp))

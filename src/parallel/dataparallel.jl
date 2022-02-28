@@ -49,7 +49,7 @@ mutable struct DataParallel{T} <: Parallel
             models[i] = clone(model, type=type)
             params[i] = paramsof(models[i])
         end
-
+        device!(devices[masteridx])
         new{T}(masteridx,
                devices,
                criterion,
