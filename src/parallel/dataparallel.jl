@@ -70,8 +70,8 @@ function DataParallel(model     :: T;
                       yspliter  :: Spliter=(dim=1, keptsame=false),
                       type      :: Type=CuArray{Float32}) where T
 
-    return DataParallel{T}(model,
-                           master    = master;
+    return DataParallel{T}(model;
+                           master    = master,
                            devices   = devices,
                            criterion = criterion,
                            xspliter  = xspliter,
