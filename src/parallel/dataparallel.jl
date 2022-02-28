@@ -1,4 +1,5 @@
 export DataParallel
+export masterdevice!
 export masterof
 export fwdbwd
 export Spliter
@@ -93,7 +94,16 @@ end
 
 
 masterof(dp::DataParallel)  = dp.models[dp.masteridx]
-Mira.xparamsof(dp::DataParallel) = xparamsof(masterof(dp))
+
+function Mira.xparamsof(dp::DataParallel)
+    device!(dp.devices[dp.masteridx])
+    return xparamsof(masterof(dp))
+end
+
+function masterdevice!(dp::DataParallel)
+    device!(dp.devices[dp.masteridx])
+    return nothing
+end
 
 
 function fwdbwd(dp::DataParallel, x, y)
@@ -162,6 +172,5 @@ function sync(dp::DataParallel)
             end
         end
     end
-    device!(dp.devices[M])
     return nothing
 end
