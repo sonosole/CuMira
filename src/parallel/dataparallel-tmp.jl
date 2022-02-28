@@ -195,7 +195,7 @@ function sync(dp::DataParallel)
             if i ≠ M
                 device!(dp.devices[i])
                 Threads.@threads for j = 1:C
-                    ᵛ(G[i][j]) .= T(ᵛ(dp.cpuvars[j]))
+                    copyto!(ᵛ(G[i][j]), T(ᵛ(dp.cpuvars[j])))
                 end
             end
         end

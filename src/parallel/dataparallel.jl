@@ -141,7 +141,8 @@ function fwdbwd(dp::DataParallel, x, y)
                 device!(dp.devices[M])
                 Threads.@threads for j = 1:C
                     tmp = Zeros(T, G[M][j].shape)
-                    δ(G[M][j]) .+= copyto!(tmp, δ(G[i][j]))
+                    copyto!(tmp, δ(G[i][j]))
+                    δ(G[M][j]) .+= tmp
                 end
                 device!(dp.devices[i])
                 zerograds!(G[i])
@@ -166,8 +167,7 @@ function sync(dp::DataParallel)
             if i ≠ M
                 device!(dp.devices[i])
                 Threads.@threads for j = 1:C
-                    tmp = Zeros(T, G[i][j].shape)
-                    ᵛ(G[i][j]) .= copyto!(tmp, ᵛ(G[M][j]))
+                    copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
                 end
             end
         end
