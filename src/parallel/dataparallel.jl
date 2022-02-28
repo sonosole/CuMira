@@ -172,5 +172,6 @@ function sync(dp::DataParallel)
             end
         end
     end
+    device!(dp.devices[M])
     return nothing
 end
