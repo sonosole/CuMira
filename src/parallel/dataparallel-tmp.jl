@@ -2,8 +2,8 @@
 # Cross-device copy of wrapped arrays would fail
 
 export DataParallel
-export masterof
 export masterdevice!
+export masterof
 export fwdbwd
 export Spliter
 export sync
@@ -199,5 +199,6 @@ function sync(dp::DataParallel)
             end
         end
     end
+    device!(dp.devices[M])
     return nothing
 end
