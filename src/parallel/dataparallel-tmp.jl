@@ -3,6 +3,7 @@
 
 export DataParallel
 export masterof
+export masterdevice!
 export fwdbwd
 export Spliter
 export sync
@@ -54,6 +55,8 @@ mutable struct DataParallel{T} <: Parallel
             params[i] = paramsof(models[i])
         end
 
+        device!(devices[masteridx])
+
         for v in cpuvars
             zerodelta(v)
         end
@@ -103,8 +106,15 @@ end
 
 
 masterof(dp::DataParallel) = dp.models[dp.masteridx]
-Mira.xparamsof(dp::DataParallel) = xparamsof(masterof(dp))
+function Mira.xparamsof(dp::DataParallel)
+    device!(dp.devices[dp.masteridx])
+    return xparamsof(masterof(dp))
+end
 
+function masterdevice!(dp::DataParallel)
+    device!(dp.devices[dp.masteridx])
+    return nothing
+end
 
 function fwdbwd(dp::DataParallel, x, y)
     T = dp.type
@@ -189,6 +199,5 @@ function sync(dp::DataParallel)
             end
         end
     end
-    device!(dp.devices[M])
     return nothing
 end
