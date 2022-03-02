@@ -21,7 +21,7 @@ mutable struct DataParallelX{T} <: Parallel
     models    :: Vector{T}                # models on `devices`
     params    :: Vector{Vector{Variable}} # workers-device's params
     caches    :: Vector                   # caches on master `devices`
-    tuples    :: Vector                   # parallel pairs
+    tuples    :: Vector                   # parallel index pairs
     type      :: Type
     function DataParallelX{T}(model     :: T;
                              master    :: Int=0,

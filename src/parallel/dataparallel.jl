@@ -27,6 +27,7 @@ mutable struct DataParallel{T} <: Parallel
     yspliter  :: Spliter                  # split label flags
     models    :: Vector{T}                # models on `devices`
     params    :: Vector{Vector{Variable}} # workers-device's params
+    tuples    :: Vector                   # parallel index pairs
     type      :: Type
     function DataParallel{T}(model     :: T;
                              master    :: Int=0,
@@ -38,16 +39,21 @@ mutable struct DataParallel{T} <: Parallel
 
         @assert master in devices "master=$master not in devices=$devices"
         masteridx = 0
+        tuples = Vector()
         ntasks = length(devices)
         models = Vector{T}(undef, ntasks)
         params = Vector{Vector{Variable}}(undef, ntasks)
         for i  = 1:ntasks
-            if devices[i] == master
-                masteridx = i
-            end
             device!(devices[i])
             models[i] = clone(model, type=type)
             params[i] = paramsof(models[i])
+            if devices[i] == master
+                masteridx = i
+            else
+                for j = 1:length(params[i])
+                    push!(tuples, (i,j))
+                end
+            end
         end
         device!(devices[masteridx])
         new{T}(masteridx,
@@ -57,6 +63,7 @@ mutable struct DataParallel{T} <: Parallel
                yspliter,
                models,
                params,
+               tuples,
                type)
     end
 end
@@ -163,13 +170,9 @@ function sync(dp::DataParallel)
 
     # move weights from master-GPU to non-master-GPUs
     @sync begin
-        for i = 1:D
-            if i ≠ M
-                device!(dp.devices[i])
-                Threads.@threads for j = 1:C
-                    copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
-                end
-            end
+        Threads.@threads for (i, j) in dp.tuples
+            device!(dp.devices[i])
+            copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
         end
     end
     device!(dp.devices[M])
