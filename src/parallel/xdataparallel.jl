@@ -119,6 +119,7 @@ function fwdbwd(dp::DataParallelX, x, y)
     C = length(G[M])        # number of learnable params
     D = length(dp.devices)  # number of GPUs
     l = Vector(undef,   D)  # to store losses
+    caches = dp.caches
     xdim, xkeptsame = dp.xspliter
     ydim, ykeptsame = dp.yspliter
     I₁, I₂, N = keptdims(x; dim=xdim)
