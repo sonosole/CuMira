@@ -2,5 +2,6 @@ abstract type Parallel end
 
 
 include("./misc.jl")
+include("./dataparallels.jl")
 include("./dataparallel.jl")
-include("./xdataparallel.jl")
+include("./dataparallelx.jl")

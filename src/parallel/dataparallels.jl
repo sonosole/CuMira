@@ -1,20 +1,14 @@
 # this implementation is under the condition that:
 # Cross-device copy of wrapped arrays would fail
 
-export DataParallel
-export masterdevice!
-export masterof
-export fwdbwd
-export Spliter
-export sync
+export DataParallelS
 
-const Spliter = NamedTuple{(:dim,:keptsame),Tuple{Int, Bool}}
 
 """
-mutable struct DataParallel{T} <: Parallel
+mutable struct DataParallelS{T} <: Parallel
 
 # Constructor
-    DataParallel{T}(model     :: T;
+    DataParallelS{T}(model     :: T;
                     master    :: Int=0,            # master device
                     devices   :: Vector{Int}=[0],  # workers devices
                     criterion :: Function,         # loss function
@@ -22,7 +16,7 @@ mutable struct DataParallel{T} <: Parallel
                     yspliter  :: Spliter,          # split label flags for devices
                     type      :: Type=CuArray{Float32}) where T
 """
-mutable struct DataParallel{T} <: Parallel
+mutable struct DataParallelS{T} <: Parallel
     masteridx :: Int                      # master device's index
     devices   :: Vector{Int}              # workers devices
     criterion :: Function                 # loss function
@@ -32,7 +26,7 @@ mutable struct DataParallel{T} <: Parallel
     params    :: Vector{Vector{Variable}} # workers-device's params
     cpuvars   :: Vector{Variable}         # params on CPU
     type      :: Type
-    function DataParallel{T}(model     :: T;
+    function DataParallelS{T}(model     :: T;
                              master    :: Int=0,
                              devices   :: Vector{Int}=[0],
                              criterion :: Function,
@@ -74,7 +68,7 @@ mutable struct DataParallel{T} <: Parallel
 end
 
 
-function DataParallel(model     :: T;
+function DataParallelS(model     :: T;
                       master    :: Int=0,
                       devices   :: Vector{Int}=[0],
                       criterion :: Function,
@@ -82,7 +76,7 @@ function DataParallel(model     :: T;
                       yspliter  :: Spliter=(dim=1, keptsame=false),
                       type      :: Type=CuArray{Float32}) where T
 
-    return DataParallel{T}(model;
+    return DataParallelS{T}(model;
                            master    = master,
                            devices   = devices,
                            criterion = criterion,
@@ -92,8 +86,8 @@ function DataParallel(model     :: T;
 end
 
 
-function Base.show(io::IO, dp::DataParallel{T}) where T
-    println("DataParallel{$T}")
+function Base.show(io::IO, dp::DataParallelS{T}) where T
+    println("DataParallelS{$T}")
     println(io, "——————————————————————————————————————————————")
     println(io, "master device  = $(dp.masteridx)")
     println(io, "worker devices = $(dp.devices)")
@@ -105,19 +99,19 @@ function Base.show(io::IO, dp::DataParallel{T}) where T
 end
 
 
-masterof(dp::DataParallel) = dp.models[dp.masteridx]
+masterof(dp::DataParallelS) = dp.models[dp.masteridx]
 
-function Mira.xparamsof(dp::DataParallel)
+function Mira.xparamsof(dp::DataParallelS)
     device!(dp.devices[dp.masteridx])
     return xparamsof(masterof(dp))
 end
 
-function masterdevice!(dp::DataParallel)
+function masterdevice!(dp::DataParallelS)
     device!(dp.devices[dp.masteridx])
     return nothing
 end
 
-function fwdbwd(dp::DataParallel, x, y)
+function fwdbwd(dp::DataParallelS, x, y)
     T = dp.type
     G = dp.params
     M = dp.masteridx
@@ -176,7 +170,7 @@ function fwdbwd(dp::DataParallel, x, y)
 end
 
 
-function sync(dp::DataParallel)
+function sync(dp::DataParallelS)
     T = dp.type
     G = dp.params
     M = dp.masteridx
