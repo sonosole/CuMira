@@ -88,6 +88,7 @@ end
 
 
 function Base.show(io::IO, dp::DataParallel{T}) where T
+    println(io, "─────────────────────────────────────────────")
     println("\n DataParallel{$T}")
     println(io, "─────────────────────────────────────────────")
     println(io, " master device  = $(dp.devices[dp.masteridx])")
