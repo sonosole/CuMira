@@ -51,7 +51,7 @@ mutable struct DataParallel{T} <: Parallel
                 masteridx = i
             else
                 for j = 1:length(params[i])
-                    push!(tuples, (devices[i],j))
+                    push!(tuples, (i,j))
                 end
             end
         end
@@ -88,15 +88,15 @@ end
 
 
 function Base.show(io::IO, dp::DataParallel{T}) where T
-    println("\nDataParallel{$T}")
-    println(io, "—————————————————————————————————————————————————————")
+    println("\n DataParallel{$T}")
+    println(io, "─────────────────────────────────────────────")
     println(io, " master device  = $(dp.devices[dp.masteridx])")
     println(io, " worker devices = $(dp.devices)")
     println(io, "      criterion = $(dp.criterion)")
     println(io, "       xspliter = $(dp.xspliter)")
     println(io, "       yspliter = $(dp.yspliter)")
-    println(io, "           type = $(dp.type)")
-    println(io, "—————————————————————————————————————————————————————")
+    println(io, "          dtype = $(eltype(dp.type))")
+    println(io, "─────────────────────────────────────────────")
 end
 
 
@@ -157,7 +157,7 @@ function fwdbwd(dp::DataParallel, x, y)
         end
     end
     device!(dp.devices[M])
-    return sum(l)
+    return sum(l)/D
 end
 
 
@@ -165,7 +165,7 @@ function sync(dp::DataParallel)
     T = dp.type
     G = dp.params
     M = dp.masteridx
-    C = length(G[M])        # number of learnable params
+    C = length(G[M])        # number of params
     D = length(dp.devices)  # number of GPUs
 
     # move weights from master-GPU to non-master-GPUs

@@ -49,7 +49,7 @@ mutable struct DataParallelX{T} <: Parallel
                 end
             else
                 for j = 1:length(params[i])
-                    push!(tuples, (devices[i],j))
+                    push!(tuples, (i,j))
                 end
             end
         end
@@ -69,33 +69,34 @@ end
 
 
 function DataParallelX(model     :: T;
-                      master    :: Int=0,
-                      devices   :: Vector{Int}=[0],
-                      criterion :: Function,
-                      xspliter  :: Spliter=(dim=1, keptsame=false),
-                      yspliter  :: Spliter=(dim=1, keptsame=false),
-                      type      :: Type=CuArray{Float32}) where T
+                       master    :: Int=0,
+                       devices   :: Vector{Int}=[0],
+                       criterion :: Function,
+                       xspliter  :: Spliter=(dim=1, keptsame=false),
+                       yspliter  :: Spliter=(dim=1, keptsame=false),
+                       type      :: Type=CuArray{Float32}) where T
 
     return DataParallelX{T}(model;
-                           master    = master,
-                           devices   = devices,
-                           criterion = criterion,
-                           xspliter  = xspliter,
-                           yspliter  = yspliter,
-                           type      = type)
+                            master    = master,
+                            devices   = devices,
+                            criterion = criterion,
+                            xspliter  = xspliter,
+                            yspliter  = yspliter,
+                            type      = type)
 end
 
 
 function Base.show(io::IO, dp::DataParallelX{T}) where T
-    println("\nDataParallelX{$T}")
-    println(io, "—————————————————————————————————————————————————————")
+    print(io,   "─────────────────────────────────────────────")
+    println("\n DataParallelX{$T}")
+    println(io, "─────────────────────────────────────────────")
     println(io, " master device  = $(dp.devices[dp.masteridx])")
     println(io, " worker devices = $(dp.devices)")
     println(io, "      criterion = $(dp.criterion)")
     println(io, "       xspliter = $(dp.xspliter)")
     println(io, "       yspliter = $(dp.yspliter)")
-    println(io, "           type = $(dp.type)")
-    println(io, "—————————————————————————————————————————————————————")
+    println(io, "          dtype = $(eltype(dp.type))")
+    println(io, "─────────────────────────────────────────────")
 end
 
 
@@ -156,7 +157,7 @@ function fwdbwd(dp::DataParallelX, x, y)
         end
     end
     device!(dp.devices[M])
-    return sum(l)
+    return sum(l)/D
 end
 
 
@@ -164,7 +165,7 @@ function sync(dp::DataParallelX)
     T = dp.type
     G = dp.params
     M = dp.masteridx
-    C = length(G[M])        # number of learnable params
+    C = length(G[M])        # number of params
     D = length(dp.devices)  # number of GPUs
 
     # move weights from master-GPU to non-master-GPUs
