@@ -27,7 +27,7 @@ mutable struct DataParallel{T} <: Parallel
     yspliter  :: Spliter                  # split label flags
     models    :: Vector{T}                # models on `devices`
     params    :: Vector{Vector{Variable}} # workers-device's params
-    tuples    :: Vector                   # parallel index pairs
+    tuples    :: Vector{Tuple{Int,Int}}   # parallel index pairs
     type      :: Type
     function DataParallel{T}(model     :: T;
                              master    :: Int=0,
