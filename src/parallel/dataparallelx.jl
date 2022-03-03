@@ -49,7 +49,7 @@ mutable struct DataParallelX{T} <: Parallel
                 end
             else
                 for j = 1:length(params[i])
-                    push!(tuples, (i,j))
+                    push!(tuples, (devices[i],j))
                 end
             end
         end

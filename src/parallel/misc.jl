@@ -1,3 +1,6 @@
+export getidx
+export keptdims
+
 """
     getidx(N::Int, batchsize::Int, k::Int) -> start:final
 
