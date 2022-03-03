@@ -151,8 +151,9 @@ function fwdbwd(dp::DataParallel, x, y)
                 Threads.@threads for j = 1:C
                     @async begin
                         device!(dp.devices[M])
-                        copyto!(caches[j], δ(G[i][j]))
-                        δ(G[M][j]) .+= caches[j]
+                        tmp = Zeros(T, G[M][j].shape)
+                        copyto!(tmp, δ(G[i][j]))
+                        δ(G[M][j]) .+= tmp
                     end
                 end
             end
