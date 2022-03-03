@@ -88,7 +88,7 @@ end
 
 
 function Base.show(io::IO, dp::DataParallel{T}) where T
-    println(io, "─────────────────────────────────────────────")
+    print(io,   "─────────────────────────────────────────────")
     println("\n DataParallel{$T}")
     println(io, "─────────────────────────────────────────────")
     println(io, " master device  = $(dp.devices[dp.masteridx])")
@@ -118,7 +118,7 @@ function fwdbwd(dp::DataParallel, x, y)
     T = dp.type
     G = dp.params
     M = dp.masteridx
-    C = length(G[M])        # number of learnable params
+    C = length(G[M])        # number of params
     D = length(dp.devices)  # number of GPUs
     l = Vector(undef,   D)  # to store losses
     xdim, xkeptsame = dp.xspliter
@@ -131,27 +131,33 @@ function fwdbwd(dp::DataParallel, x, y)
     # forward, loss and backward
     @sync begin
         Threads.@threads for i = 1:D
-            device!(dp.devices[i])
-            k = getidx(N, batchsize, i)
-            input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
-            label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
-            v = forward(dp.models[i], input)
-            c = dp.criterion(v,       label)
-            backward(c)
-            l[i] = cost(c)
+            @async begin
+                device!(dp.devices[i])
+                k = getidx(N, batchsize, i)
+                input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
+                label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
+                v = forward(dp.models[i], input)
+                c = dp.criterion(v,       label)
+                backward(c)
+                l[i] = cost(c)
+            end
         end
     end
 
-    # reduce gradients and zero gradients of non-master's
-    @sync begin
-        for i = 1:D
-            if i ≠ M
-                device!(dp.devices[M])
+    for i = 1:D
+        if i ≠ M
+            # reduce gradients
+            @sync begin
                 Threads.@threads for j = 1:C
-                    tmp = Zeros(T, G[M][j].shape)
-                    copyto!(tmp, δ(G[i][j]))
-                    δ(G[M][j]) .+= tmp
+                    @async begin
+                        device!(dp.devices[M])
+                        copyto!(caches[j], δ(G[i][j]))
+                        δ(G[M][j]) .+= caches[j]
+                    end
                 end
+            end
+            # and zero gradients of non-master's
+            @sync begin
                 device!(dp.devices[i])
                 zerograds!(G[i])
             end
@@ -172,8 +178,10 @@ function sync(dp::DataParallel)
     # move weights from master-GPU to non-master-GPUs
     @sync begin
         Threads.@threads for (i, j) in dp.tuples
-            device!(dp.devices[i])
-            copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
+            @async begin
+                device!(dp.devices[i])
+                copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
+            end
         end
     end
     device!(dp.devices[M])

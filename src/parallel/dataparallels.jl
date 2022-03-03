@@ -9,12 +9,12 @@ mutable struct DataParallelS{T} <: Parallel
 
 # Constructor
     DataParallelS{T}(model     :: T;
-                    master    :: Int=0,            # master device
-                    devices   :: Vector{Int}=[0],  # workers devices
-                    criterion :: Function,         # loss function
-                    xspliter  :: Spliter,          # split input flags for devices
-                    yspliter  :: Spliter,          # split label flags for devices
-                    type      :: Type=CuArray{Float32}) where T
+                     master    :: Int=0,            # master device
+                     devices   :: Vector{Int}=[0],  # workers devices
+                     criterion :: Function,         # loss function
+                     xspliter  :: Spliter,          # split input flags for devices
+                     yspliter  :: Spliter,          # split label flags for devices
+                     type      :: Type=CuArray{Float32}) where T
 """
 mutable struct DataParallelS{T} <: Parallel
     masteridx :: Int                      # master device's index
@@ -27,12 +27,12 @@ mutable struct DataParallelS{T} <: Parallel
     cpuvars   :: Vector{Variable}         # params on CPU
     type      :: Type
     function DataParallelS{T}(model     :: T;
-                             master    :: Int=0,
-                             devices   :: Vector{Int}=[0],
-                             criterion :: Function,
-                             xspliter  :: Spliter=(dim=1, keptsame=false),
-                             yspliter  :: Spliter=(dim=1, keptsame=false),
-                             type      :: Type=CuArray{Float32}) where T
+                              master    :: Int=0,
+                              devices   :: Vector{Int}=[0],
+                              criterion :: Function,
+                              xspliter  :: Spliter=(dim=1, keptsame=false),
+                              yspliter  :: Spliter=(dim=1, keptsame=false),
+                              type      :: Type=CuArray{Float32}) where T
 
         @assert master in devices "master=$master not in devices=$devices"
         masteridx = 0
@@ -69,20 +69,20 @@ end
 
 
 function DataParallelS(model     :: T;
-                      master    :: Int=0,
-                      devices   :: Vector{Int}=[0],
-                      criterion :: Function,
-                      xspliter  :: Spliter=(dim=1, keptsame=false),
-                      yspliter  :: Spliter=(dim=1, keptsame=false),
-                      type      :: Type=CuArray{Float32}) where T
+                       master    :: Int=0,
+                       devices   :: Vector{Int}=[0],
+                       criterion :: Function,
+                       xspliter  :: Spliter=(dim=1, keptsame=false),
+                       yspliter  :: Spliter=(dim=1, keptsame=false),
+                       type      :: Type=CuArray{Float32}) where T
 
     return DataParallelS{T}(model;
-                           master    = master,
-                           devices   = devices,
-                           criterion = criterion,
-                           xspliter  = xspliter,
-                           yspliter  = yspliter,
-                           type      = type)
+                            master    = master,
+                            devices   = devices,
+                            criterion = criterion,
+                            xspliter  = xspliter,
+                            yspliter  = yspliter,
+                            type      = type)
 end
 
 
@@ -129,32 +129,32 @@ function fwdbwd(dp::DataParallelS, x, y)
     # forward and loss and backward
     @sync begin
         Threads.@threads for i = 1:D
-            device!(dp.devices[i])
-            k = getidx(N, batchsize, i)
-            input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
-            label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
-            v = forward(dp.models[i], input)
-            c = dp.criterion(v,       label)
-            backward(c)
-            l[i] = cost(c)
-        end
-    end
-
-    # reduce gradients from non-master-GPUs to CPU
-    @sync begin
-        for i = 1:D
-            if i ≠ M
+            @async begin
                 device!(dp.devices[i])
-                Threads.@threads for j = 1:C
-                    δ(dp.cpuvars[j]) .+= Array(δ(G[i][j]))
-                end
+                k = getidx(N, batchsize, i)
+                input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
+                label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
+                v = forward(dp.models[i], input)
+                c = dp.criterion(v,       label)
+                backward(c)
+                l[i] = cost(c)
             end
         end
     end
-    # zero gradients of non-master-GPUs
-    @sync begin
-        Threads.@threads for i = 1:D
-            if i ≠ M
+
+    for i = 1:D
+        if i ≠ M
+            # reduce gradients from non-master-GPUs to CPU
+            @sync begin
+                Threads.@threads for j = 1:C
+                    @async begin
+                        device!(dp.devices[i])
+                        δ(dp.cpuvars[j]) .+= Array(δ(G[i][j]))
+                    end
+                end
+            end
+            # zero gradients of non-master-GPUs
+            @async begin
                 device!(dp.devices[i])
                 zerograds!(G[i])
             end
@@ -162,10 +162,14 @@ function fwdbwd(dp::DataParallelS, x, y)
     end
     # move gradients from CPU to master-GPU
     # and reset CPU's gradients to zero
-    device!(dp.devices[M])
-    Threads.@threads for j = 1:C
-        δ(G[M][j]) .+= T(δ(dp.cpuvars[j]))
-        δ(dp.cpuvars[j]) .= 0.0f0
+    @sync begin
+        Threads.@threads for j = 1:C
+            @async begin
+                device!(dp.devices[M])
+                δ(G[M][j]) .+= T(δ(dp.cpuvars[j]))
+                δ(dp.cpuvars[j]) .= 0.0f0
+            end
+        end
     end
     return sum(l)/D
 end
@@ -179,18 +183,24 @@ function sync(dp::DataParallelS)
     D = length(dp.devices)
 
     # move weights from master-GPU to CPU
-    device!(dp.devices[M])
-    Threads.@threads for j = 1:C
-        ᵛ(dp.cpuvars[j]) .= Array(ᵛ(G[M][j]))
+    @sync begin
+        Threads.@threads for j = 1:C
+            @async begin
+                device!(dp.devices[M])
+                ᵛ(dp.cpuvars[j]) .= Array(ᵛ(G[M][j]))
+            end
+        end
     end
 
     # copy weights from CPU to non-master-GPUs
     @sync begin
         for i = 1:D
             if i ≠ M
-                device!(dp.devices[i])
                 Threads.@threads for j = 1:C
-                    copyto!(ᵛ(G[i][j]), T(ᵛ(dp.cpuvars[j])))
+                    @async begin
+                        device!(dp.devices[i])
+                        copyto!(ᵛ(G[i][j]), T(ᵛ(dp.cpuvars[j])))
+                    end
                 end
             end
         end

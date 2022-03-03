@@ -5,12 +5,12 @@ mutable struct DataParallelX{T} <: Parallel
 
 # Constructor
     DataParallelX{T}(model     :: T;
-                    master    :: Int=0,            # master device
-                    devices   :: Vector{Int}=[0],  # workers devices
-                    criterion :: Function,         # loss function
-                    xspliter  :: Spliter,          # split input flags for devices
-                    yspliter  :: Spliter,          # split label flags for devices
-                    type      :: Type=CuArray{Float32}) where T
+                     master    :: Int=0,            # master device
+                     devices   :: Vector{Int}=[0],  # workers devices
+                     criterion :: Function,         # loss function
+                     xspliter  :: Spliter,          # split input flags for devices
+                     yspliter  :: Spliter,          # split label flags for devices
+                     type      :: Type=CuArray{Float32}) where T
 """
 mutable struct DataParallelX{T} <: Parallel
     masteridx :: Int                      # master device's index
@@ -24,12 +24,12 @@ mutable struct DataParallelX{T} <: Parallel
     tuples    :: Vector{Tuple{Int,Int}}   # parallel index pairs
     type      :: Type
     function DataParallelX{T}(model     :: T;
-                             master    :: Int=0,
-                             devices   :: Vector{Int}=[0],
-                             criterion :: Function,
-                             xspliter  :: Spliter=(dim=1, keptsame=false),
-                             yspliter  :: Spliter=(dim=1, keptsame=false),
-                             type      :: Type=CuArray{Float32}) where T
+                              master    :: Int=0,
+                              devices   :: Vector{Int}=[0],
+                              criterion :: Function,
+                              xspliter  :: Spliter=(dim=1, keptsame=false),
+                              yspliter  :: Spliter=(dim=1, keptsame=false),
+                              type      :: Type=CuArray{Float32}) where T
 
         @assert master in devices "master=$master not in devices=$devices"
         masteridx = 0
@@ -117,7 +117,7 @@ function fwdbwd(dp::DataParallelX, x, y)
     T = dp.type
     G = dp.params
     M = dp.masteridx
-    C = length(G[M])        # number of learnable params
+    C = length(G[M])        # number of params
     D = length(dp.devices)  # number of GPUs
     l = Vector(undef,   D)  # to store losses
     caches = dp.caches
@@ -131,26 +131,33 @@ function fwdbwd(dp::DataParallelX, x, y)
     # forward, loss and backward
     @sync begin
         Threads.@threads for i = 1:D
-            device!(dp.devices[i])
-            k = getidx(N, batchsize, i)
-            input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
-            label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
-            v = forward(dp.models[i], input)
-            c = dp.criterion(v,       label)
-            backward(c)
-            l[i] = cost(c)
+            @async begin
+                device!(dp.devices[i])
+                k = getidx(N, batchsize, i)
+                input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
+                label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
+                v = forward(dp.models[i], input)
+                c = dp.criterion(v,       label)
+                backward(c)
+                l[i] = cost(c)
+            end
         end
     end
 
-    # reduce gradients and zero gradients of non-master's
-    @sync begin
-        for i = 1:D
-            if i ≠ M
-                device!(dp.devices[M])
+    for i = 1:D
+        if i ≠ M
+            # reduce gradients
+            @sync begin
                 Threads.@threads for j = 1:C
-                    copyto!(caches[j], δ(G[i][j]))
-                    δ(G[M][j]) .+= caches[j]
+                    @async begin
+                        device!(dp.devices[M])
+                        copyto!(caches[j], δ(G[i][j]))
+                        δ(G[M][j]) .+= caches[j]
+                    end
                 end
+            end
+            # and zero gradients of non-master's
+            @sync begin
                 device!(dp.devices[i])
                 zerograds!(G[i])
             end
@@ -171,8 +178,10 @@ function sync(dp::DataParallelX)
     # move weights from master-GPU to non-master-GPUs
     @sync begin
         Threads.@threads for (i, j) in dp.tuples
-            device!(dp.devices[i])
-            copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
+            @async begin
+                device!(dp.devices[i])
+                copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
+            end
         end
     end
     device!(dp.devices[M])
