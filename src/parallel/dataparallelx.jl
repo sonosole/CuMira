@@ -130,7 +130,8 @@ function fwdbwd(dp::DataParallelX, x, y)
 
     # forward, loss and backward
     @sync begin
-        Threads.@threads for i = 1:D
+        # Threads.@threads
+        for i = 1:D
             @async begin
                 device!(dp.devices[i])
                 k = getidx(N, batchsize, i)
@@ -148,7 +149,8 @@ function fwdbwd(dp::DataParallelX, x, y)
         if i ≠ M
             # reduce gradients
             @sync begin
-                Threads.@threads for j = 1:C
+                # Threads.@threads
+                for j = 1:C
                     @async begin
                         device!(dp.devices[M])
                         copyto!(caches[j], δ(G[i][j]))
@@ -177,7 +179,8 @@ function sync(dp::DataParallelX)
 
     # move weights from master-GPU to non-master-GPUs
     @sync begin
-        Threads.@threads for (i, j) in dp.tuples
+        # Threads.@threads 
+        for (i, j) in dp.tuples
             @async begin
                 device!(dp.devices[i])
                 copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
