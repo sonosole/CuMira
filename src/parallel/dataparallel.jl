@@ -88,16 +88,16 @@ end
 
 
 function Base.show(io::IO, dp::DataParallel{T}) where T
-    print(io,   "─────────────────────────────────────────────")
+    print(io,   "═════════════════════════════════════════════V")
     println("\n DataParallel{$T}")
-    println(io, "─────────────────────────────────────────────")
+    println(io, "═════════════════════════════════════════════")
     println(io, " master device  = $(dp.devices[dp.masteridx])")
     println(io, " worker devices = $(dp.devices)")
     println(io, "      criterion = $(dp.criterion)")
     println(io, "       xspliter = $(dp.xspliter)")
     println(io, "       yspliter = $(dp.yspliter)")
     println(io, "          dtype = $(eltype(dp.type))")
-    println(io, "─────────────────────────────────────────────")
+    println(io, "═════════════════════════════════════════════")
 end
 
 
