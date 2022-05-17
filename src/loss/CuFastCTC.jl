@@ -107,12 +107,11 @@ end
 
 
 # CUDA version of CTC LOSS
-function Mira.FastCTC(p::CuArray{TYPE,2}, seqlabel; blank::Int=1) where TYPE
+function Mira.FastCTC(p::CuArray{TYPE,2}, seqlabel::Vector{Int}; blank::Int=1) where TYPE
     seq  = seqfastctc(seqlabel, blank)
-    Log0 = LogZero(TYPE)
     ZERO = TYPE(0)
     S, T = size(p)
-    L = length(seq)        # topology length with blanks
+    L = length(seq)    # topology length with blanks
     G = L * T
 
     if L == 1
@@ -121,7 +120,8 @@ function Mira.FastCTC(p::CuArray{TYPE,2}, seqlabel; blank::Int=1) where TYPE
         return r, - sum(log.(p[blank,:]))
     end
 
-    seq = cu(seq)
+    seq  = cu(seq)
+    Log0 = LogZero(TYPE)
     CUDA.@sync begin
         a = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
         b = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
