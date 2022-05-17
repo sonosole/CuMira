@@ -109,7 +109,7 @@ end
 
 
 """
-    TDC(p::CuArray{T,2}, seqlabel; blank::Int=1, front::Int=2) where T
+    TDC(p::CuArray{T,2}, seqlabel::Vector{Int}; blank::Int=1, front::Int=2) where T
 
 # Topology Example
      ┌─►─┐    ┌─►─┐    ┌─►─┐    ┌─►─┐             ┌─►─┐    ┌─►─┐    ┌─►─┐             ┌─►─┐    ┌─►─┐    ┌─►─┐
@@ -120,7 +120,7 @@ end
                          └─────────────────►──────────┘      └─────────────────►──────────┘
 
 """
-function Mira.TDC(p::CuArray{TYPE,2}, seqlabel::Vector; blank::Int=1, front::Int=2) where TYPE
+function Mira.TDC(p::CuArray{TYPE,2}, seqlabel::Vector{Int}; blank::Int=1, front::Int=2) where TYPE
     seq  = seqtdc(seqlabel, blank, front)
     Log0 = LogZero(TYPE)
     ZERO = TYPE(0)
@@ -130,8 +130,8 @@ function Mira.TDC(p::CuArray{TYPE,2}, seqlabel::Vector; blank::Int=1, front::Int
 
     if L == 1
         r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO)
-        r[seq[1],:] .= TYPE(1)
-        return r, - sum(log.(p[seq[1],:]))
+        r[blank,:] .= TYPE(1)
+        return r, - sum(log.(p[blank,:]))
     end
 
     seq = cu(seq)
