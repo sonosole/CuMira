@@ -114,21 +114,20 @@ function CTCReduceOther(r, g, seq, N::Int, T::Int, blank::Int)
 end
 
 # CUDA version of CTC LOSS
-function Mira.CTC(p::CuArray{TYPE,2}, seq; blank=1) where TYPE
-    Log0 = LogZero(TYPE)
+function Mira.CTC(p::CuArray{TYPE,2}, seq::Vector{Int}; blank::Int=1) where TYPE
     ZERO = TYPE(0)
     S, T = size(p)
-    slen = length(seq)
 
-    if slen == 0
-        r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO);
+    if seq[1] == 0
+        r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO)
         r[blank,:] .= TYPE(1)
         return r, - sum(log.(p[blank,:]))
     end
 
-    L = slen*2 + 1
+    L = 2 * length(seq) + 1
     G = L * T
-    seq = cu(seq)
+    seq  = cu(seq)
+    Log0 = LogZero(TYPE)
     CUDA.@sync begin
         a = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
         b = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
