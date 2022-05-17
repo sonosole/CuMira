@@ -105,9 +105,8 @@ function TCSReduceOther(r, g, seq, N::Int, T::Int)
 end
 
 
-function Mira.TCS(p::CuArray{TYPE,2}, seqlabel; background::Int=1, foreground::Int=2) where TYPE
+function Mira.TCS(p::CuArray{TYPE,2}, seqlabel::Vector{Int}; background::Int=1, foreground::Int=2) where TYPE
     seq  = seqtcs(seqlabel, background, foreground)
-    Log0 = LogZero(TYPE)
     ZERO = TYPE(0)
     S, T = size(p)
     L = length(seq)
@@ -115,11 +114,12 @@ function Mira.TCS(p::CuArray{TYPE,2}, seqlabel; background::Int=1, foreground::I
 
     if L == 1
         r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO);
-        r[seq[1],:] .= TYPE(1)
-        return r, - sum(log.(p[seq[1],:]))
+        r[background,:] .= TYPE(1)
+        return r, - sum(log.(p[background,:]))
     end
 
-    seq = cu(seq)
+    seq  = cu(seq)
+    Log0 = LogZero(TYPE)
     CUDA.@sync begin
         a = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
         b = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
