@@ -16,8 +16,8 @@ function fastctcfwd(a, p, seq, L::Int, T::Int)
 
     for t = 2:T
         τ = t-1
-        first = CUDA.max(1, L-2*(T-t)-1)
-        lasst = CUDA.min(2*t, L)
+        first = CUDA.max(1, t-T+L-1)
+        lasst = CUDA.min(1+t, L)
         for s = start:stride:L
             if first <= s <= lasst
                 if s≠1
@@ -41,8 +41,8 @@ function fastctcbwd(b, p, seq, L::Int, T::Int)
 
     for t = T-1:-1:1
         τ = t+1
-        first = CUDA.max(1, L-2*(T-t)-1)
-        lasst = CUDA.min(2*t, L)
+        first = CUDA.max(1, t-T+L-1)
+        lasst = CUDA.min(1+t, L)
         for s = start:stride:L
             if first <= s <= lasst
                 Q = b[s,τ] + log(p[seq[s],τ])
