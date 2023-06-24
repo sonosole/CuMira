@@ -1,1 +1,5 @@
 include("./1-conv1d.jl")
+include("./common.jl")
+include("./ten2mat.jl")
+include("./ten2mat-1a.jl")
+include("./ten2mat-2a.jl")
