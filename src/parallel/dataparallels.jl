@@ -127,30 +127,26 @@ function fwdbwd(dp::DataParallelS, x, y)
     batchsize = ceil(Int, N/D)
 
     # forward and loss and backward
-    @sync begin
-        Threads.@threads for i = 1:D
-            @async begin
-                device!(dp.devices[i])
-                k = getidx(N, batchsize, i)
-                input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
-                label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
-                v = forward(dp.models[i], input)
-                c = dp.criterion(v,       label)
-                backward(c)
-                l[i] = cost(c)
-            end
+    @sync for i = 1:D
+        @async begin
+            device!(dp.devices[i])
+            k = getidx(N, batchsize, i)
+            input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
+            label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
+            v = forward(dp.models[i], input)
+            c = dp.criterion(v,       label)
+            backward(c)
+            l[i] = cost(c)
         end
     end
 
     for i = 1:D
         if i ≠ M
             # reduce gradients from non-master-GPUs to CPU
-            @sync begin
-                Threads.@threads for j = 1:C
-                    @async begin
-                        device!(dp.devices[i])
-                        δ(dp.cpuvars[j]) .+= Array(δ(G[i][j]))
-                    end
+            @sync for j = 1:C
+                @async begin
+                    device!(dp.devices[i])
+                    δ(dp.cpuvars[j]) .+= Array(δ(G[i][j]))
                 end
             end
             # zero gradients of non-master-GPUs
@@ -162,13 +158,11 @@ function fwdbwd(dp::DataParallelS, x, y)
     end
     # move gradients from CPU to master-GPU
     # and reset CPU's gradients to zero
-    @sync begin
-        Threads.@threads for j = 1:C
-            @async begin
-                device!(dp.devices[M])
-                δ(G[M][j]) .+= T(δ(dp.cpuvars[j]))
-                δ(dp.cpuvars[j]) .= 0.0f0
-            end
+    @sync for j = 1:C
+        @async begin
+            device!(dp.devices[M])
+            δ(G[M][j]) .+= T(δ(dp.cpuvars[j]))
+            δ(dp.cpuvars[j]) .= 0.0f0
         end
     end
     return sum(l)/D
@@ -183,24 +177,20 @@ function sync(dp::DataParallelS)
     D = length(dp.devices)
 
     # move weights from master-GPU to CPU
-    @sync begin
-        Threads.@threads for j = 1:C
-            @async begin
-                device!(dp.devices[M])
-                ᵛ(dp.cpuvars[j]) .= Array(ᵛ(G[M][j]))
-            end
+    @sync for j = 1:C
+        @async begin
+            device!(dp.devices[M])
+            ᵛ(dp.cpuvars[j]) .= Array(ᵛ(G[M][j]))
         end
     end
 
     # copy weights from CPU to non-master-GPUs
-    @sync begin
-        for i = 1:D
-            if i ≠ M
-                Threads.@threads for j = 1:C
-                    @async begin
-                        device!(dp.devices[i])
-                        copyto!(ᵛ(G[i][j]), T(ᵛ(dp.cpuvars[j])))
-                    end
+    @sync for i = 1:D
+        if i ≠ M
+            for j = 1:C
+                @async begin
+                    device!(dp.devices[i])
+                    copyto!(ᵛ(G[i][j]), T(ᵛ(dp.cpuvars[j])))
                 end
             end
         end

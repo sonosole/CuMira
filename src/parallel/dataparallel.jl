@@ -129,32 +129,28 @@ function fwdbwd(dp::DataParallel, x, y)
     batchsize = ceil(Int, N/D)
 
     # forward, loss and backward
-    @sync begin
-        Threads.@threads for i = 1:D
-            @async begin
-                device!(dp.devices[i])
-                k = getidx(N, batchsize, i)
-                input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
-                label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
-                v = forward(dp.models[i], input)
-                c = dp.criterion(v,       label)
-                backward(c)
-                l[i] = cost(c)
-            end
+    @sync for i = 1:D
+        @async begin
+            device!(dp.devices[i])
+            k = getidx(N, batchsize, i)
+            input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
+            label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
+            v = forward(dp.models[i], input)
+            c = dp.criterion(v,       label)
+            backward(c)
+            l[i] = cost(c)
         end
     end
 
     for i = 1:D
         if i ≠ M
             # reduce gradients
-            @sync begin
-                Threads.@threads for j = 1:C
-                    @async begin
-                        device!(dp.devices[M])
-                        tmp = Zeros(T, G[M][j].shape)
-                        copyto!(tmp, δ(G[i][j]))
-                        δ(G[M][j]) .+= tmp
-                    end
+            @sync for j = 1:C
+                @async begin
+                    device!(dp.devices[M])
+                    tmp = Zeros(T, G[M][j].shape)
+                    copyto!(tmp, δ(G[i][j]))
+                    δ(G[M][j]) .+= tmp
                 end
             end
             # and zero gradients of non-master's
@@ -177,12 +173,10 @@ function sync(dp::DataParallel)
     D = length(dp.devices)  # number of GPUs
 
     # move weights from master-GPU to non-master-GPUs
-    @sync begin
-        Threads.@threads for (i, j) in dp.tuples
-            @async begin
-                device!(dp.devices[i])
-                copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
-            end
+    @sync for (i, j) in dp.tuples
+        @async begin
+            device!(dp.devices[i])
+            copyto!(ᵛ(G[i][j]), ᵛ(G[M][j]))
         end
     end
     device!(dp.devices[M])
