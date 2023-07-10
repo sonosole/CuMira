@@ -1,4 +1,9 @@
 function create_code_ten2mat(D::Int)
+    e    = "e"  # element index str
+    n    = "n"  # patch index str
+    l    = "l"  # local coords str
+    g    = "g"  # global coords str
+    k    = "k"  # input's spatial-dims index str
     body = """
     function ten2matfwd(y,
                         x,
@@ -15,23 +20,21 @@ function create_code_ten2mat(D::Int)
         spacing = blockDim().x * gridDim().x
 
         for m = ithread : spacing : leny
-            row = mod(m-1, rows) + 1      # row index of y
-            col = div(m-1, rows) + 1      # col index of y
-
+            row = mod(m-1, rows) + 1        # row index of y
+            col = div(m-1, rows) + 1        # col index of y
             c = mod(row-1, xchannels) + 1   # channel index
-            e = div(row-1, xchannels) + 1   # element index in a patch
-
-            n = mod(col-1, npatches) + 1    # patch index
+            $e = div(row-1, xchannels) + 1   # element index in a patch
+            $n = mod(col-1, npatches) + 1    # patch index
             b = div(col-1, npatches) + 1    # sample index
 
             @inbounds begin
                 # local coords diff inside patch
-            $(Δcoords(D, "kernel", "e", "l", indent="    "))
-                # global coords diff between patch
-            $(Δcoords(D, "zsize", "n", "g", indent="    "))
+            $(Δcoords(D, "kernel", e, l, indent="    "))
+                # global coords diff between adjacent patchs
+            $(Δcoords(D, "zsize",  n, g, indent="    "))
                 # absolute coords of x
-            $(coords(D, "l", "g", "k"))
-                y[m] = $(xelement(D, "k"))
+            $(coords(D, l, g, k))
+                y[m] = $(xelement(D, k))
             end
         end
         return nothing
@@ -47,11 +50,11 @@ end
 
 
 
-function ten2mat_nd_infos(x        :: CuArray,
-                          padding  :: NTuple{D,Dims{2}},
-                          kernel   :: Dims{D},
-                          dilation :: Dims{D},
-                          stride   :: Dims{D}) where D
+function ten2matFwdInfo(x        :: CuArray,
+                        padding  :: NTuple{D,Dims{2}},
+                        kernel   :: Dims{D},
+                        dilation :: Dims{D},
+                        stride   :: Dims{D}) where D
     assertdim(x, 2+D)
     sizeofx = size(x)
     xsize   = ntuple(i -> sizeofx[i+1] + sum(padding[i]), D)             # equivalent spatial width after padding
@@ -68,17 +71,23 @@ function ten2mat_nd_infos(x        :: CuArray,
 end
 
 # alias for im2col algorithm
-function tensor2matrix(x        :: CuArray{T},
-                       padding  :: NTuple{D,NTuple{2,Int}},
-                       kernel   :: NTuple{D,Int},
-                       dilation :: NTuple{D,Int},
-                       stride   :: NTuple{D,Int},
-                       padval   :: Real = 0) where {T,D}
+function ten2mat(x        :: CuArray{T},
+                 padding  :: Pads{D},
+                 kernel   :: Dims{D},
+                 dilation :: Dims{D},
+                 stride   :: Dims{D},
+                 padmode  :: Function = padconst,
+                 padval   :: Real = 0) where {T,D}
 
     rows, cols, ylen, npatches, xchannels, zsize =
-    ten2mat_nd_infos(x, padding, kernel, dilation, stride)
+    ten2matFwdInfo(x, padding, kernel, dilation, stride)
 
-    x = padconst(x, ntuple(i -> (1 < i < D+2) ? padding[i-1] : (0,0), D+2), padval)
+    if padmode == padconst
+        x = padmode(x, extendpad(padding), padval)
+    else
+        x = padmode(x, extendpad(padding))
+    end
+
     y = similar(x, rows, cols)
 
     @cuda blocks=CuBlocks(ylen) threads=CuThreads(ylen) (

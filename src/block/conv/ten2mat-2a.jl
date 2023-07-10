@@ -6,15 +6,15 @@ function create_code_ten2mat2a(D::Int)
     k = "k"
 
     body = """
-    function _tensor2matrix2a(y,
-                            x,
-                            ekernel   :: Dims{$D},
-                            dilation  :: Dims{$D},
-                            stride    :: Dims{$D},
-                            zsize     :: Dims{$D},
-                            rows      :: Int,
-                            cols      :: Int,
-                            xchannels :: Int)
+    function ten2matfwd2a(y,
+                          x,
+                          ekernel   :: Dims{$D},
+                          dilation  :: Dims{$D},
+                          stride    :: Dims{$D},
+                          zsize     :: Dims{$D},
+                          rows      :: Int,
+                          cols      :: Int,
+                          xchannels :: Int)
 
         xthread = blockDim().x * (blockIdx().x - 1) + threadIdx().x
         spacing = blockDim().x * gridDim().x
@@ -47,7 +47,7 @@ end
 
 
 # x → [im2col] → y → [conv] → z
-function ten2mat_nd_infos2a(x        :: CuArray,
+function ten2matFwdInfo2a(x        :: CuArray,
                           padding  :: NTuple{D,Dims{2}},
                           kernel   :: Dims{D},
                           dilation :: Dims{D},
@@ -68,21 +68,27 @@ end
 
 
 
-function tensor2matrix2a(x        :: CuArray{T},
-                       padding  :: NTuple{D,NTuple{2,Int}},
-                       kernel   :: NTuple{D,Int},
-                       dilation :: NTuple{D,Int},
-                       stride   :: NTuple{D,Int},
-                       padval   :: Real = 0) where {T,D}
+function ten2mat2a(x        :: CuArray{T},
+                   padding  :: Pads{D},
+                   kernel   :: Dims{D},
+                   dilation :: Dims{D},
+                   stride   :: Dims{D},
+                   padmode  :: Function = padconst,
+                   padval   :: Real = 0) where {T,D}
 
     rows, cols, xchannels, ekernel, zsize =
-    ten2mat_nd_infos2a(x, padding, kernel, dilation, stride)
+    ten2matFwdInfo2a(x, padding, kernel, dilation, stride)
 
-    x = padconst(x, ntuple(i -> (1 < i < D+2) ? padding[i-1] : (0,0), D+2), padval)
+    if padmode == padconst
+        x = padmode(x, extendpad(padding), padval)
+    else
+        x = padmode(x, extendpad(padding))
+    end
+
     y = similar(x, rows, cols)
 
     @cuda blocks=CuBlocks(cols) threads=CuThreads(cols) (
-        _tensor2matrix2a(y, x, ekernel, dilation, stride, zsize, rows, cols, xchannels)
+        ten2matfwd2a(y, x, ekernel, dilation, stride, zsize, rows, cols, xchannels)
     )
 
     return y
