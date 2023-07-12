@@ -1,6 +1,7 @@
-export create_code_ten2mat2a
+export create_code_ten2mat2a_fwd
+export create_code_ten2mat2a_bwd
 
-function create_code_ten2mat2a(D::Int)
+function create_code_ten2mat2a_fwd(D::Int)
     n = "n"
     r = "r"
     k = "k"
@@ -40,13 +41,55 @@ function create_code_ten2mat2a(D::Int)
 end
 
 
+function create_code_ten2mat2a_bwd(D::Int)
+    n = "n"
+    r = "r"
+    k = "k"
+
+    body = """
+    function ten2matbwd2a(y,
+                          x,
+                          ekernel   :: Dims{$D},
+                          dilation  :: Dims{$D},
+                          stride    :: Dims{$D},
+                          zsize     :: Dims{$D},
+                          rows      :: Int,
+                          cols      :: Int,
+                          xchannels :: Int)
+
+        xthread = blockDim().x * (blockIdx().x - 1) + threadIdx().x
+        spacing = blockDim().x * gridDim().x
+
+        for $n = xthread : spacing : cols
+            # coords of one patch
+            $(ΔcoordsWithb(D, "zsize", n, r))
+            @inbounds begin
+                j = 0                  # iter index for n-th patch
+                o = (n - 1) * rows     # offset for n-th patch
+                $(patchloop(D, r, k))
+                    for c = 1 : xchannels
+                        j = j + 1
+                        CUDA.@atomic $(xelement(D, k)) += y[o + j]
+                    end
+                end
+            end
+        end
+        return nothing
+    end
+    """
+    return eval(Meta.parse(body))
+end
+
+
 for D in (1,2,3,4,5)
-    create_code_ten2mat2a(D)
+    create_code_ten2mat2a_fwd(D)
+    create_code_ten2mat2a_bwd(D)
 end
 
 
 
-# x → [im2col] → y → [conv] → z
+# x → [im2col] → y
+# x → [conv]   → z
 function ten2matFwdInfo2a(x        :: CuArray,
                           padding  :: NTuple{D,Dims{2}},
                           kernel   :: Dims{D},

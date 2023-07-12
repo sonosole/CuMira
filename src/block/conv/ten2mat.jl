@@ -1,4 +1,8 @@
-function create_code_ten2mat(D::Int)
+export create_code_ten2mat_fwd
+export create_code_ten2mat_bwd
+
+
+function create_code_ten2mat_fwd(D::Int)
     e    = "e"  # element index str
     n    = "n"  # patch index str
     l    = "l"  # local coords str
@@ -44,12 +48,59 @@ function create_code_ten2mat(D::Int)
 end
 
 
-for D in (1,2,3,4,5)
-    create_code_ten2mat(D)
+function create_code_ten2mat_bwd(D::Int)
+    e    = "e"  # element index str
+    n    = "n"  # patch index str
+    l    = "l"  # local coords str
+    g    = "g"  # global coords str
+    k    = "k"  # input's spatial-dims index str
+    body = """
+    function ten2matbwd(y,
+                        x,
+                        kernel    :: Dims{$D},   # conv kernel size
+                        dilation  :: Dims{$D},   # conv kernel dilation
+                        stride    :: Dims{$D},   # conv kernel moving stride
+                        zsize     :: Dims{$D},   # feature's spatial size after conv
+                        rows      :: Int,
+                        leny      :: Int,
+                        npatches  :: Int,
+                        xchannels :: Int)
+
+        ithread = blockDim().x * (blockIdx().x - 1) + threadIdx().x
+        spacing = blockDim().x * gridDim().x
+
+        for m = ithread : spacing : leny
+            row = mod(m-1, rows) + 1        # row index of y
+            col = div(m-1, rows) + 1        # col index of y
+            c = mod(row-1, xchannels) + 1   # channel index
+            $e = div(row-1, xchannels) + 1   # element index in a patch
+            $n = mod(col-1, npatches) + 1    # patch index
+            b = div(col-1, npatches) + 1    # sample index
+
+            @inbounds begin
+                # local coords diff inside patch
+            $(Δcoords(D, "kernel", e, l, indent="    "))
+                # global coords diff between adjacent patchs
+            $(Δcoords(D, "zsize",  n, g, indent="    "))
+                # absolute coords of x
+            $(coords(D, l, g, k))
+                CUDA.@atomic $(xelement(D, k)) += y[m]
+            end
+        end
+        return nothing
+    end
+    """
+    return eval(Meta.parse(body))
 end
 
 
+for D in (1,2,3,4,5)
+    create_code_ten2mat_fwd(D)
+    create_code_ten2mat_bwd(D)
+end
 
+
+import Mira.ten2matFwdInfo
 function ten2matFwdInfo(x        :: CuArray,
                         padding  :: NTuple{D,Dims{2}},
                         kernel   :: Dims{D},
@@ -70,7 +121,8 @@ function ten2matFwdInfo(x        :: CuArray,
     return rows, cols, ylen, npatches, xchannels, zsize
 end
 
-# alias for im2col algorithm
+
+import Mira.ten2mat
 function ten2mat(x        :: CuArray{T},
                  padding  :: Pads{D},
                  kernel   :: Dims{D},
@@ -94,5 +146,44 @@ function ten2mat(x        :: CuArray{T},
         ten2matfwd(y, x, kernel, dilation, stride, zsize, rows, ylen, npatches, xchannels)
     )
 
+    return y
+end
+
+
+function ten2mat(x        :: Variable{CuArray{T}},
+                 padding  :: Pads{D},
+                 kernel   :: Dims{D},
+                 dilation :: Dims{D},
+                 stride   :: Dims{D},
+                 padmode  :: Function = padconst,
+                 padval   :: Real = 0) where {T,D}
+
+    rows, cols, ylen, npatches, xchannels, zsize =
+    ten2matFwdInfo(x, padding, kernel, dilation, stride)
+
+    if padmode == padconst
+        x = padmode(x, extendpad(padding), padval)
+    else
+        x = padmode(x, extendpad(padding))
+    end
+
+    y = similar(x, rows, cols)
+
+    @cuda blocks=CuBlocks(ylen) threads=CuThreads(ylen) (
+        ten2matfwd(ᵛ(y), ᵛ(x), kernel, dilation, stride, zsize, rows, ylen, npatches, xchannels)
+    )
+
+    if y.backprop
+        y.backward = function ∇ten2mat()
+            if need2computeδ!(x)
+                zerodelta(x)
+                @cuda blocks=CuBlocks(ylen) threads=CuThreads(ylen) (
+                    ten2matbwd(ᵟ(y), ᵟ(x), kernel, dilation, stride, zsize, rows, ylen, npatches, xchannels)
+                )
+            end
+            ifNotKeepδThenFreeδ!(y)
+        end
+        addchild(y, x)
+    end
     return y
 end

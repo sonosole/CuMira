@@ -1,6 +1,7 @@
-export create_code_ten2mat1a
+export create_code_ten2mat1a_fwd
+export create_code_ten2mat1a_bwd
 
-function create_code_ten2mat1a(D::Int)
+function create₋code₋ten2mat1a_fwd(D::Int)
     n = "n"
     r = "r"
     k = "k"
@@ -42,13 +43,60 @@ function create_code_ten2mat1a(D::Int)
     return eval(Meta.parse(body))
 end
 
+function create_code_ten2mat1a_bwd(D::Int)
+    e    = "e"  # element index str
+    n    = "n"  # patch index str
+    l    = "l"  # local coords str
+    g    = "g"  # global coords str
+    k    = "k"  # input's spatial-dims index str
+    body = """
+    function ten2matbwd(y,
+                        x,
+                        kernel    :: Dims{$D},   # conv kernel size
+                        dilation  :: Dims{$D},   # conv kernel dilation
+                        stride    :: Dims{$D},   # conv kernel moving stride
+                        zsize     :: Dims{$D},   # feature's spatial size after conv
+                        rows      :: Int,
+                        leny      :: Int,
+                        npatches  :: Int,
+                        xchannels :: Int)
 
-for D in (1,2,3,4,5)
-    create_code_ten2mat1a(D)
+        ithread = blockDim().x * (blockIdx().x - 1) + threadIdx().x
+        spacing = blockDim().x * gridDim().x
+
+        for m = ithread : spacing : leny
+            row = mod(m-1, rows) + 1        # row index of y
+            col = div(m-1, rows) + 1        # col index of y
+            c = mod(row-1, xchannels) + 1   # channel index
+            $e = div(row-1, xchannels) + 1   # element index in a patch
+            $n = mod(col-1, npatches) + 1    # patch index
+            b = div(col-1, npatches) + 1    # sample index
+
+            @inbounds begin
+                # local coords diff inside patch
+            $(Δcoords(D, "kernel", e, l, indent="    "))
+                # global coords diff between adjacent patchs
+            $(Δcoords(D, "zsize",  n, g, indent="    "))
+                # absolute coords of x
+            $(coords(D, l, g, k))
+                CUDA.@atomic $(xelement(D, k)) += y[m]
+            end
+        end
+        return nothing
+    end
+    """
+    return eval(Meta.parse(body))
 end
 
 
-# x → [im2col] → y → [conv] → z
+for D in (1,2,3,4,5)
+    create_code_ten2mat1a_fwd(D)
+    create_code_ten2mat1a_bwd(D)
+end
+
+
+# x → [im2col] → y
+# x → [conv]   → z
 function ten2matFwdInfo1a(x        :: CuArray,
                           padding  :: NTuple{D,Dims{2}},
                           kernel   :: Dims{D},

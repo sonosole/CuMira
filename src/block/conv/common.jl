@@ -1,8 +1,6 @@
-export xelement, patchloop, Δcoords, ΔcoordsWithb
 import Mira.assertdim
-import Mira.padconst
-import Mira.ten2mat_nd_infos
-import tensor2matrix
+import Mira.ten2matFwdInfo
+import Mira.ten2mat
 
 
 function patchloop(D::Int, δ::String, k::String)
