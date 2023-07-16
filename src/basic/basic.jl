@@ -7,9 +7,9 @@ export SetBlockSize
 
 
 # 每个 Block 块里拥有的线程数
-global XThreadsPerXBlock = 512
-global YThreadsPerYBlock = 512
-global ZThreadsPerZBlock = 32
+global XThreadsPerBlock = 512
+global YThreadsPerBlock = 512
+global ZThreadsPerBlock = 32
 
 
 # 设置每个 block 的线程数量

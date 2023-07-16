@@ -102,7 +102,7 @@ end
 
 import Mira.ten2matFwdInfo
 function ten2matFwdInfo(x        :: CuArray,
-                        padding  :: NTuple{D,Dims{2}},
+                        padding  :: Pads{D},
                         kernel   :: Dims{D},
                         dilation :: Dims{D},
                         stride   :: Dims{D}) where D
@@ -159,7 +159,7 @@ function ten2mat(x        :: Variable{CuArray{T}},
                  padval   :: Real = 0) where {T,D}
 
     rows, cols, ylen, npatches, xchannels, zsize =
-    ten2matFwdInfo(x, padding, kernel, dilation, stride)
+    ten2matFwdInfo(ᵛ(x), padding, kernel, dilation, stride)
 
     if padmode == padconst
         x = padmode(x, extendpad(padding), padval)

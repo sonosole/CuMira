@@ -1,7 +1,8 @@
 import Mira.assertdim
 import Mira.ten2matFwdInfo
 import Mira.ten2mat
-
+import Mira.Pads
+import Mira.extendpad
 
 function patchloop(D::Int, δ::String, k::String)
     spans = ntuple(D) do d

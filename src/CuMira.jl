@@ -6,10 +6,10 @@ using Reexport
 @reexport using Mira
 @reexport using CUDA
 
+include("./kit/include.jl")
 include("./basic/basic.jl")
-include("./block/block.jl")
-include("./kit/kit.jl")
-include("./loss/loss.jl")
+include("./block/include.jl")
+include("./loss/include.jl")
 include("./parallel/include.jl")
 
 

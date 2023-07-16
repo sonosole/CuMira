@@ -1,7 +1,7 @@
 export create_code_ten2mat1a_fwd
 export create_code_ten2mat1a_bwd
 
-function create₋code₋ten2mat1a_fwd(D::Int)
+function create_code_ten2mat1a_fwd(D::Int)
     n = "n"
     r = "r"
     k = "k"
@@ -50,7 +50,7 @@ function create_code_ten2mat1a_bwd(D::Int)
     g    = "g"  # global coords str
     k    = "k"  # input's spatial-dims index str
     body = """
-    function ten2matbwd(y,
+    function ten2matbwd1a(y,
                         x,
                         kernel    :: Dims{$D},   # conv kernel size
                         dilation  :: Dims{$D},   # conv kernel dilation
