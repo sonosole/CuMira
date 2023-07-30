@@ -1,200 +1,206 @@
-# this implementation is under the condition that:
-# Cross-device copy of wrapped arrays would fail
-
 export DataParallelS
-
+export fwdbwd
 
 """
 mutable struct DataParallelS{T} <: Parallel
 
 # Constructor
-    DataParallelS{T}(model     :: T;
-                     master    :: Int=0,            # master device
-                     devices   :: Vector{Int}=[0],  # workers devices
-                     criterion :: Function,         # loss function
-                     xspliter  :: Spliter,          # split input flags for devices
-                     yspliter  :: Spliter,          # split label flags for devices
-                     type      :: Type=CuArray{Float32}) where T
+    DataParallelS{T}(model    :: T;
+                     master   :: Int=0,            # master device
+                     devices  :: Vector{Int}=[0],  # workers devices
+                     criteria :: Function,         # loss function
+                     xspliter :: Spliter,          # split input flags for devices
+                     yspliter :: Spliter,          # split label flags for devices
+                     type     :: Type=CuArray{Float32}) where T
 """
 mutable struct DataParallelS{T} <: Parallel
-    masteridx :: Int                      # master device's index
-    devices   :: Vector{Int}              # workers devices
-    criterion :: Function                 # loss function
-    xspliter  :: Spliter                  # split input flags
-    yspliter  :: Spliter                  # split label flags
-    models    :: Vector{T}                # models on `devices`
-    params    :: Vector{Vector{Variable}} # workers-device's params
-    cpuvars   :: Vector{Variable}         # params on CPU
-    type      :: Type
-    function DataParallelS{T}(model     :: T;
-                              master    :: Int=0,
-                              devices   :: Vector{Int}=[0],
-                              criterion :: Function,
-                              xspliter  :: Spliter=(dim=1, keptsame=false),
-                              yspliter  :: Spliter=(dim=1, keptsame=false),
-                              type      :: Type=CuArray{Float32}) where T
-
-        @assert master in devices "master=$master not in devices=$devices"
-        masteridx = 0
-        cpuvars = paramsof(model)
-        ntasks  = length(devices)
-        models  = Vector{T}(undef, ntasks)
-        params  = Vector{Vector{Variable}}(undef, ntasks)
-        for i = 1:ntasks
-            if devices[i] == master
-                masteridx = i
+    master   :: Int                      # master device
+    imaster  :: Int                      # master device's index
+    copylist :: Vector{Int}              # non-master devices index
+    calcdevs :: Vector{Int}              # devices that get involed into calculation
+    devices  :: Vector{Int}              # all devices
+    criteria :: Function                 # loss function
+    xspliter :: Spliter                  # split input flags
+    yspliter :: Spliter                  # split label flags
+    models   :: Vector{T}                # worker-models and master model
+    params   :: Vector{Vector{Variable}} # worker-models and master model's params
+    caches   :: Vector                   # caches on master device
+    tuples   :: Vector{Tuple{Int,Int}}   # params' coords on non-master device
+    type     :: Type
+    function DataParallelS(model    :: T;
+                           master   :: Int=0,
+                           workers  :: Vector{Int}=[0],
+                           criteria :: Function,
+                           xspliter :: Spliter=(dim=1, keptsame=false),
+                           yspliter :: Spliter=(dim=1, keptsame=false),
+                           type     :: Type=CuArray{Float32}) where T
+        imaster  = - 1
+        nworkers = length(workers)
+        for (i, worker) in enumerate(workers)
+            @assert worker ≥ 0 "device ≥ 0 shall be met, but got $worker"
+            if worker == master
+                imaster = i
+                break
             end
-            device!(devices[i])
-            models[i] = clone(model, type=type)
-            params[i] = paramsof(models[i])
+        end
+        if imaster == - 1
+            # master not in workers
+            copylist = collect(1:nworkers)
+            calcdevs = copy(workers)
+            devices  = push!(workers, master)
+            imaster  = nworkers + 1
+        else
+            # master is in workers
+            copylist = [i for i in 1:nworkers if i≠imaster]
+            calcdevs = copy(workers)
+            devices  = workers
         end
 
-        device!(devices[masteridx])
-
-        for v in cpuvars
-            zerodelta(v)
+        caches = Vector()
+        totdev = length(devices)
+        tuples = Vector{Dims{2}}(undef,0)
+        models = Vector{T}(undef, totdev)
+        params = Vector{Vector{Variable{type}}}(undef, totdev)
+        @sync for i = 1:totdev
+            # switch context and make replications of model and param
+            device!(devices[i]) do
+                models[i] = clone(model, type=type)
+                params[i] = paramsof(models[i])
+                if !isequal(i, imaster)
+                    # mark worker coords in params
+                    for j = 1:length(params[i])
+                        push!(tuples, (i,j))
+                    end
+                end
+            end
         end
 
-        new{T}(masteridx,
+        device!(devices[imaster]) do
+            # caches to hold gradients
+            for x in params[imaster]
+                push!(caches, zero(ᵛ(x)))
+            end
+        end
+
+        new{T}(master,
+               imaster,
+               copylist,
+               calcdevs,
                devices,
-               criterion,
+               criteria,
                xspliter,
                yspliter,
                models,
                params,
-               cpuvars,
+               caches,
+               tuples,
                type)
     end
 end
 
 
-function DataParallelS(model     :: T;
-                       master    :: Int=0,
-                       devices   :: Vector{Int}=[0],
-                       criterion :: Function,
-                       xspliter  :: Spliter=(dim=1, keptsame=false),
-                       yspliter  :: Spliter=(dim=1, keptsame=false),
-                       type      :: Type=CuArray{Float32}) where T
 
-    return DataParallelS{T}(model;
-                            master    = master,
-                            devices   = devices,
-                            criterion = criterion,
-                            xspliter  = xspliter,
-                            yspliter  = yspliter,
-                            type      = type)
-end
-
-
-function Base.show(io::IO, dp::DataParallelS{T}) where T
-    print(io,   "═════════════════════════════════════════════")
+function Base.show(io::IO, Q::DataParallelS{T}) where T
+    workers = ""
+    for dev in Q.calcdevs
+        workers *= string(dev)
+        workers *= " "
+    end
+    print(io,   "────────────────────────────────────────")
     println("\n DataParallelS{$T}")
-    println(io, "═════════════════════════════════════════════")
-    println(io, " master device  = $(dp.devices[dp.masteridx])")
-    println(io, " worker devices = $(dp.devices)")
-    println(io, "      criterion = $(dp.criterion)")
-    println(io, "       xspliter = $(dp.xspliter)")
-    println(io, "       yspliter = $(dp.yspliter)")
-    println(io, "          dtype = $(eltype(dp.type))")
-    println(io, "═════════════════════════════════════════════")
+    println(io, "────────────────────────────────────────")
+    println(io, " master    = $(Q.master)")
+    println(io, " workers   = $(workers)")
+    println(io, " criteria  = $(Q.criteria)")
+    println(io, "  xspliter = $(Q.xspliter)")
+    println(io, "  yspliter = $(Q.yspliter)")
+    println(io, "     dtype = $(Q.type)")
+    println(io, "────────────────────────────────────────")
 end
 
 
-masterof(dp::DataParallelS) = dp.models[dp.masteridx]
-
-function Mira.xparamsof(dp::DataParallelS)
-    device!(dp.devices[dp.masteridx])
-    return xparamsof(masterof(dp))
+function masterof(Q::DataParallelS)
+    device!(Q.master)
+    return Q.models[Q.imaster]
 end
 
-function masterdevice!(dp::DataParallelS)
-    device!(dp.devices[dp.masteridx])
-    return nothing
+function Mira.xparamsof(Q::DataParallelS)
+    device!(Q.master)
+    return xparamsof(Q.models[Q.imaster])
 end
 
-function fwdbwd(dp::DataParallelS, x, y)
-    T = dp.type
-    G = dp.params
-    M = dp.masteridx
-    C = length(dp.cpuvars)
-    D = length(dp.devices)
-    l = Vector(undef,   D)
-    xdim, xkeptsame = dp.xspliter
-    ydim, ykeptsame = dp.yspliter
+#  fwd + loss + bwd + zerograd
+function fwdbwd(Q::DataParallelS, x, y)
+    T = Q.type
+    W = length(Q.calcdevs)  # number of GPUs to work
+    l = Vector(undef,    W)  # to store losses
+    xdim, xkeptsame = Q.xspliter
+    ydim, ykeptsame = Q.yspliter
     I₁, I₂, N = keptdims(x; dim=xdim)
     J₁, J₂, L = keptdims(y; dim=ydim)
     @assert N == L "#input=$N and #label=$L do NOT have the same number of samples"
-    batchsize = ceil(Int, N/D)
+    batchsize = div(N, W)
 
-    # forward and loss and backward
-    @sync for i = 1:D
+    # forward, loss and backward
+    @sync for (i, d) in enumerate(Q.calcdevs)
         @async begin
-            device!(dp.devices[i])
-            k = getidx(N, batchsize, i)
-            input = xkeptsame ? x[I₁,k,I₂] : Variable{T}(x[I₁,k,I₂], true, false, true)
-            label = ykeptsame ? y[J₁,k,J₂] : Variable{T}(y[J₁,k,J₂], true, false, true)
-            v = forward(dp.models[i], input)
-            c = dp.criterion(v,       label)
-            backward(c)
-            l[i] = cost(c)
+            device!(d) do
+                k = getidx(N, batchsize, i)
+                input = xkeptsame ? x[I₁,k,I₂] : Variable(x[I₁,k,I₂], type=T)
+                label = ykeptsame ? y[J₁,k,J₂] : Variable(y[J₁,k,J₂], type=T)
+                v = forward(Q.models[i], input)
+                c = Q.criteria(v,        label)
+                l[i] = cost(c)
+                backward(c)
+            end
         end
     end
 
-    for i = 1:D
-        if i ≠ M
-            # reduce gradients from non-master-GPUs to CPU
-            @sync for j = 1:C
-                @async begin
-                    device!(dp.devices[i])
-                    δ(dp.cpuvars[j]) .+= Array(δ(G[i][j]))
+    P = Q.params       # params on all devices
+    M = Q.imaster      # master device's index
+    C = length(P[M])    # number of params
+    master = Q.master
+    caches = Q.caches
+
+    # reduce grad to master-device
+    for i in Q.copylist
+        @sync for j = 1:C
+            @async begin
+                # copy non-master-device-grad to caches, then
+                # reduce cached grad to master-device's grad
+                copyto!(caches[j], δ(P[i][j]))
+                device!(master) do
+                    P[M][j] ← caches[j]
                 end
             end
-            # zero gradients of non-master-GPUs
-            @async begin
-                device!(dp.devices[i])
-                zerograds!(G[i])
+        end
+    end
+
+    # zero grad of worker-devices
+    @sync for i in Q.copylist
+        device!(Q.devices[i]) do
+            for j = 1:C
+                δ(P[i][j]) .= 0f0
             end
         end
     end
-    # move gradients from CPU to master-GPU
-    # and reset CPU's gradients to zero
-    @sync for j = 1:C
-        @async begin
-            device!(dp.devices[M])
-            δ(G[M][j]) .+= T(δ(dp.cpuvars[j]))
-            δ(dp.cpuvars[j]) .= 0.0f0
-        end
-    end
-    return sum(l)/D
+
+    device!(master)
+    return sum(l) / W
 end
 
 
-function sync(dp::DataParallelS)
-    T = dp.type
-    G = dp.params
-    M = dp.masteridx
-    C = length(dp.cpuvars)
-    D = length(dp.devices)
+function syncparams(Q::DataParallelS)
+    P = Q.params
+    M = Q.imaster
 
-    # move weights from master-GPU to CPU
-    @sync for j = 1:C
+    # from master-GPU to non-master-GPUs
+    @sync for (i, j) in Q.tuples
         @async begin
-            device!(dp.devices[M])
-            ᵛ(dp.cpuvars[j]) .= Array(ᵛ(G[M][j]))
+            copyto!(ᵛ(P[i][j]), ᵛ(P[M][j]))
         end
     end
-
-    # copy weights from CPU to non-master-GPUs
-    @sync for i = 1:D
-        if i ≠ M
-            for j = 1:C
-                @async begin
-                    device!(dp.devices[i])
-                    copyto!(ᵛ(G[i][j]), T(ᵛ(dp.cpuvars[j])))
-                end
-            end
-        end
-    end
-    device!(dp.devices[M])
+    
+    device!(Q.master)
     return nothing
 end

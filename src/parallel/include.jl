@@ -1,7 +1,6 @@
 abstract type Parallel end
-
+export Parallel
 
 include("./misc.jl")
 include("./dataparallel.jl")
-include("./dataparallelx.jl")
 include("./dataparallels.jl")
