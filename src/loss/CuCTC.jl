@@ -7,7 +7,7 @@ function ctcfwd(a, p, seq, L::Int, T::Int, blank::Int)
         τ = t-1
         first = CUDA.max(1,L-2*(T-t)-1);
         lasst = CUDA.min(2*t,L);
-        for s = start:stride:L
+        @inbounds for s = start:stride:L
             if first <= s <= lasst
                 i = div(s,2);
                 if s==1
@@ -37,7 +37,7 @@ function ctcbwd(b, p, seq, L::Int, T::Int, blank::Int)
         τ = t+1
         first = CUDA.max(1,L-2*(T-t)-1)
         lasst = CUDA.min(2*t,L)
-        for s = start:stride:L
+        @inbounds for s = start:stride:L
             if first <= s <= lasst
                 i = div(s,2)
                 j = div(s+1,2)
@@ -61,7 +61,7 @@ end
 
 # -- ctc-initital CUDA kernel
 function initCTCio(a, b, p, seq, L::Int, T::Int, TypeZero, blank::Int)
-    if threadIdx().x == 1
+    @inbounds if threadIdx().x == 1
         a[1,1] = culog(p[blank,1])
         a[2,1] = culog(p[seq[1],1])
         b[L  ,T] = TypeZero
@@ -73,7 +73,7 @@ end
 # -- LogLikely of ctc CUDA kernel
 function ctclogsum(a, b, logsum)
     if threadIdx().x == 1
-        logsum[1] = CuLogSum2Exp(a[1,1] + b[1,1], a[2,1] + b[2,1])
+        @inbounds logsum[1] = CuLogSum2Exp(a[1,1] + b[1,1], a[2,1] + b[2,1])
     end
     return nothing
 end
@@ -82,8 +82,8 @@ end
 function ctcgamma(g, a, b, logsum, N)
     stride = blockDim().x * gridDim().x
     start  = blockDim().x * (blockIdx().x - 1) + threadIdx().x
-    for i = start:stride:N
-        @inbounds g[i] = cuexp(a[i] + b[i] - logsum[1])
+    @inbounds for i = start:stride:N
+        g[i] = cuexp(a[i] + b[i] - logsum[1])
     end
     return nothing
 end
@@ -92,8 +92,8 @@ end
 function CTCReduceFirst(r, g, T::Int, blank::Int)
     stride = blockDim().x * gridDim().x
     start  = blockDim().x * (blockIdx().x - 1) + threadIdx().x
-    for t = start:stride:T
-        @inbounds r[blank,t] = g[1,t]
+    @inbounds for t = start:stride:T
+        r[blank,t] = g[1,t]
     end
     return nothing
 end
@@ -104,9 +104,9 @@ function CTCReduceOther(r, g, seq, N::Int, T::Int, blank::Int)
     start  = blockDim().x * (blockIdx().x - 1) + threadIdx().x
     for n = 1:N
         s = n<<1
-        for t = start:stride:T
-            @inbounds r[seq[n],t] += g[s,  t]  # reduce labels' states
-            @inbounds r[blank, t] += g[s+1,t]  # reduce blank state
+        @inbounds for t = start:stride:T
+            r[seq[n],t] += g[s,  t]  # reduce labels' states
+            r[blank, t] += g[s+1,t]  # reduce blank state
         end
         sync_threads()
     end
@@ -129,18 +129,18 @@ function Mira.CTC(p::CuArray{TYPE,2}, seq::Vector{Int}; blank::Int=1) where TYPE
     seq  = cu(seq)
     Log0 = LogZero(TYPE)
     CUDA.@sync begin
-        a = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
-        b = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
-        g = fill!(CuArray{TYPE,2}(undef,L,T), ZERO);
-        r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO);
-        LOGSUM = fill!(CuArray{TYPE,1}(undef,1), Log0);
+        @async a = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
+        @async b = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
+        @async g = fill!(CuArray{TYPE,2}(undef,L,T), ZERO);
+        @async r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO);
+        @async LOGSUM = fill!(CuArray{TYPE,1}(undef,1), Log0);
     end
 
     CUDA.@sync @cuda threads=1 initCTCio(a, b, p, seq, L, T, ZERO, blank);
 
     CUDA.@sync begin
-        @cuda blocks=1 threads=CuThreads(L) ctcfwd(a, p, seq, L, T, blank);
-        @cuda blocks=1 threads=CuThreads(L) ctcbwd(b, p, seq, L, T, blank);
+        @async @cuda blocks=1 threads=CuThreads(L) ctcfwd(a, p, seq, L, T, blank);
+        @async @cuda blocks=1 threads=CuThreads(L) ctcbwd(b, p, seq, L, T, blank);
     end
 
     CUDA.@sync @cuda                    threads=1            ctclogsum(a, b, LOGSUM);

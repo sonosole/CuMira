@@ -1,5 +1,5 @@
 function initFastCTCio(a, b, p, seq, L::Int, T::Int, TypeZero)
-    if threadIdx().x == 1
+    @inbounds if threadIdx().x == 1
         a[1,1] = culog(p[seq[1],1])
         a[2,1] = culog(p[seq[2],1])
         b[L-1,T] = TypeZero
@@ -18,7 +18,7 @@ function fastctcfwd(a, p, seq, L::Int, T::Int)
         τ = t-1
         first = CUDA.max(1, t-T+L-1)
         lasst = CUDA.min(1+t, L)
-        for s = start:stride:L
+        @inbounds for s = start:stride:L
             if first <= s <= lasst
                 if s≠1
                     a[s,t] = CuLogSum2Exp(a[s,τ], a[s-1,τ])
@@ -43,7 +43,7 @@ function fastctcbwd(b, p, seq, L::Int, T::Int)
         τ = t+1
         first = CUDA.max(1, t-T+L-1)
         lasst = CUDA.min(1+t, L)
-        for s = start:stride:L
+        @inbounds for s = start:stride:L
             if first <= s <= lasst
                 Q = b[s,τ] + log(p[seq[s],τ])
                 if s≠L
@@ -61,7 +61,7 @@ end
 
 # -- LogLikely of fastctc CUDA kernel
 function fastctclogsum(a, b, logsum)
-    if threadIdx().x == 1
+    @inbounds if threadIdx().x == 1
         logsum[1] = CuLogSum2Exp(a[1,1] + b[1,1], a[2,1] + b[2,1])
     end
     return nothing
@@ -72,8 +72,8 @@ end
 function fastctcgamma(g, a, b, logsum, N::Int)
     stride = blockDim().x * gridDim().x
     start  = blockDim().x * (blockIdx().x - 1) + threadIdx().x
-    for i = start:stride:N
-        @inbounds g[i] = cuexp(a[i] + b[i] - logsum[1])
+    @inbounds for i = start:stride:N
+        g[i] = cuexp(a[i] + b[i] - logsum[1])
     end
     return nothing
 end
@@ -83,8 +83,8 @@ end
 function FastCTCReduceFirst(r, g, T::Int, blank::Int)
     stride = blockDim().x * gridDim().x
     start  = blockDim().x * (blockIdx().x - 1) + threadIdx().x
-    for t = start:stride:T
-        @inbounds r[blank,t] = g[1,t]
+    @inbounds for t = start:stride:T
+        r[blank,t] = g[1,t]
     end
     return nothing
 end
@@ -96,9 +96,9 @@ function FastCTCReduceOther(r, g, seq, N::Int, T::Int, blank::Int)
     start  = blockDim().x * (blockIdx().x - 1) + threadIdx().x
     for n = 1:N
         s = n<<1
-        for t = start:stride:T
-            @inbounds r[seq[s],t] += g[s,  t]  # reduce labels' states
-            @inbounds r[blank, t] += g[s+1,t]  # reduce blank state
+        @inbounds for t = start:stride:T
+            r[seq[s],t] += g[s,  t]  # reduce labels' states
+            r[blank, t] += g[s+1,t]  # reduce blank state
         end
         sync_threads()
     end
@@ -123,18 +123,18 @@ function Mira.FastCTC(p::CuArray{TYPE,2}, seqlabel::Vector{Int}; blank::Int=1) w
     seq  = cu(seq)
     Log0 = LogZero(TYPE)
     CUDA.@sync begin
-        a = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
-        b = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
-        g = fill!(CuArray{TYPE,2}(undef,L,T), ZERO);
-        r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO);
-        LOGSUM = fill!(CuArray{TYPE,1}(undef,1), Log0);
+        @async a = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
+        @async b = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
+        @async g = fill!(CuArray{TYPE,2}(undef,L,T), ZERO);
+        @async r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO);
+        @async LOGSUM = fill!(CuArray{TYPE,1}(undef,1), Log0);
     end
 
     CUDA.@sync @cuda threads=1 initFastCTCio(a, b, p, seq, L, T, ZERO);
 
     CUDA.@sync begin
-        @cuda blocks=1 threads=CuThreads(L) fastctcfwd(a, p, seq, L, T);
-        @cuda blocks=1 threads=CuThreads(L) fastctcbwd(b, p, seq, L, T);
+        @async @cuda blocks=1 threads=CuThreads(L) fastctcfwd(a, p, seq, L, T);
+        @async @cuda blocks=1 threads=CuThreads(L) fastctcbwd(b, p, seq, L, T);
     end
 
     CUDA.@sync @cuda                    threads=1            fastctclogsum(a, b, LOGSUM);

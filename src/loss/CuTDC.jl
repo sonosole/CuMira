@@ -1,5 +1,5 @@
 function initTDCio(a, b, p, seq, L::Int, T::Int, TypeZero)
-    if threadIdx().x == 1
+    @inbounds if threadIdx().x == 1
         a[1,1] = culog(p[seq[1],1])
         a[2,1] = culog(p[seq[2],1])
         b[L-1,T] = TypeZero
@@ -16,7 +16,7 @@ function tdcfwd(a, p, seq, L::Int, T::Int)
 
     for t = 2:T
         τ = t-1
-        for s = start:stride:L
+        @inbounds for s = start:stride:L
             if s≠1
                 R = mod(s,4)
                 if R==3 || R==0 || s==2
@@ -44,7 +44,7 @@ function tdcbwd(b, p, seq, L::Int, T::Int)
 
     for t = T-1:-1:1
         τ = t+1
-        for s = start:stride:L
+        @inbounds for s = start:stride:L
             Q⁰ = b[s,τ] + culog(p[seq[s],τ])
             if s≠L
                 R = mod(s,4)
@@ -97,10 +97,10 @@ function TDCReduce(r, g, seq, N::Int, T::Int)
 
     for n = 1:N
         s = n<<2
-        for t = start:stride:T
-            @inbounds r[seq[s-2],t] += g[s-2,t]            # reduce front states
-            @inbounds r[seq[s-1],t] += g[s-1,t]            # reduce labels' states
-            @inbounds r[seq[s  ],t] += g[s-3,t] + g[s,t]   # reduce blank states
+        @inbounds for t = start:stride:T
+            r[seq[s-2],t] += g[s-2,t]            # reduce front states
+            r[seq[s-1],t] += g[s-1,t]            # reduce labels' states
+            r[seq[s  ],t] += g[s-3,t] + g[s,t]   # reduce blank states
         end
         sync_threads()
     end
@@ -112,12 +112,13 @@ end
     TDC(p::CuArray{T,2}, seqlabel::Vector{Int}; blank::Int=1, front::Int=2) where T
 
 # Topology Example
-     ┌─►─┐    ┌─►─┐    ┌─►─┐    ┌─►─┐             ┌─►─┐    ┌─►─┐    ┌─►─┐             ┌─►─┐    ┌─►─┐    ┌─►─┐
-    ┌┴───┴┐  ┌┴───┴┐  ┌┴───┴┐  ┌┴───┴┐  ┌─────┐  ┌┴───┴┐  ┌┴───┴┐  ┌┴───┴┐  ┌─────┐  ┌┴───┴┐  ┌┴───┴┐  ┌┴───┴┐
-    │blank├─►│front├─►│  A  ├─►│blank├─►│blank├─►│front├─►│  B  ├─►│blank├─►│blank├─►│front├─►│  C  ├─►│blank│
-    └─────┘  └─────┘  └──┬──┘  └──┬──┘  └─────┘  └┬───┬┘  └──┬──┘  └──┬──┘  └─────┘  └┬───┬┘  └─────┘  └─────┘
-                         │        └────────►──────┘   │      │        └────────►──────┘   │
-                         └─────────────────►──────────┘      └─────────────────►──────────┘
+       1        2        3        4            1        2        3        4            1        2        3        4
+     ┌─►─┐    ┌─►─┐    ┌─►─┐    ┌─►─┐                 ┌─►─┐    ┌─►─┐    ┌─►─┐                 ┌─►─┐    ┌─►─┐    ┌─►─┐
+    ┌┴───┴┐  ┌┴───┴┐  ┌┴───┴┐  ┌┴───┴┐      ┌─────┐  ┌┴───┴┐  ┌┴───┴┐  ┌┴───┴┐      ┌─────┐  ┌┴───┴┐  ┌┴───┴┐  ┌┴───┴┐
+    │blank├─►│front├─►│  A  ├─►│blank├──•──►│blank├─►│front├─►│  B  ├─►│blank├──•──►│blank├─►│front├─►│  C  ├─►│blank│
+    └─────┘  └─────┘  └──┬──┘  └──┬──┘      └─────┘  └┬───┬┘  └──┬──┘  └──┬──┘      └─────┘  └┬───┬┘  └─────┘  └─────┘
+                         │        └───────────►───────┘   │      │        └───────────►───────┘   │
+                         └────────────────────►───────────┘      └────────────────────►───────────┘
 
 """
 function Mira.TDC(p::CuArray{TYPE,2}, seqlabel::Vector{Int}; blank::Int=1, front::Int=2) where TYPE
@@ -136,18 +137,18 @@ function Mira.TDC(p::CuArray{TYPE,2}, seqlabel::Vector{Int}; blank::Int=1, front
 
     seq = cu(seq)
     CUDA.@sync begin
-        a = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
-        b = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
-        g = fill!(CuArray{TYPE,2}(undef,L,T), ZERO);
-        r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO);
-        LOGSUM = fill!(CuArray{TYPE,1}(undef,1), Log0);
+        @async a = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
+        @async b = fill!(CuArray{TYPE,2}(undef,L,T), Log0);
+        @async g = fill!(CuArray{TYPE,2}(undef,L,T), ZERO);
+        @async r = fill!(CuArray{TYPE,2}(undef,S,T), ZERO);
+        @async LOGSUM = fill!(CuArray{TYPE,1}(undef,1), Log0);
     end
 
     CUDA.@sync @cuda threads=1 initTDCio(a, b, p, seq, L, T, ZERO);
 
     CUDA.@sync begin
-        @cuda blocks=1 threads=CuThreads(L) tdcfwd(a, p, seq, L, T);
-        @cuda blocks=1 threads=CuThreads(L) tdcbwd(b, p, seq, L, T);
+        @async @cuda blocks=1 threads=CuThreads(L) tdcfwd(a, p, seq, L, T);
+        @async @cuda blocks=1 threads=CuThreads(L) tdcbwd(b, p, seq, L, T);
     end
 
     CUDA.@sync @cuda                    threads=1            tdclogsum(a, b, LOGSUM);
