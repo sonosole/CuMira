@@ -175,7 +175,7 @@ function ten2mat(x        :: Variable{CuArray{T}},
 
     if y.backprop
         y.backward = function ∇ten2mat()
-            if need2computeδ!(x)
+            if needgrad(x)
                 zerodelta(x)
                 @cuda blocks=CuBlocks(ylen) threads=CuThreads(ylen) (
                     ten2matbwd(ᵟ(y), ᵟ(x), kernel, dilation, stride, zsize, rows, ylen, npatches, xchannels)

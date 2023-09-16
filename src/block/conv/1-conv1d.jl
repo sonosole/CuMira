@@ -120,7 +120,7 @@ function Mira.in2col(x::Variable{CuArray{T}}, kernel::Int, stride::Int) where T
 
     if y.backprop
         y.backward = function in2colBackward()
-            if need2computeδ!(x)
+            if needgrad(x)
                 if stride < kernel
                     nums = rows * batchsize
                     @cuda blocks=CuBlocks(nums) threads=CuThreads(nums) (
